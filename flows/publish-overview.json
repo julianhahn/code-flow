@@ -1,0 +1,263 @@
+{
+  "version": 2,
+  "title": "EXISTING ITALIAN PUBLICATION · successful path overview; conditional checks shown, error branches omitted. Cards are ordered milestones, not direct call edges.",
+  "sources": {
+    "s0": {
+      "file": "pkgs/app/src/components/Editor/useEditorInvoicePublishFlow.tsx",
+      "sha256": "c42425ade2f9adcdf258c2a83e6dad372d09cc06b4b82ff85c8efaa9d72def6b"
+    },
+    "s1": {
+      "file": "pkgs/app/src/components/Editor/useEditorInvoicePublishFlow.tsx",
+      "sha256": "c42425ade2f9adcdf258c2a83e6dad372d09cc06b4b82ff85c8efaa9d72def6b"
+    },
+    "s2": {
+      "file": "pkgs/app/src/components/Editor/useEditorInvoicePublishFlow.tsx",
+      "sha256": "c42425ade2f9adcdf258c2a83e6dad372d09cc06b4b82ff85c8efaa9d72def6b"
+    },
+    "s3": {
+      "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+      "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+    },
+    "s4": {
+      "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+      "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+    },
+    "s5": {
+      "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+      "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+    },
+    "s6": {
+      "file": "pkgs/document-backend-functions/src/publishDocument/createPublishDocument.ts",
+      "sha256": "a312db3d4ff8b59b127dc1c8d73cf4dce44860d16d94ca6df72703b4e2ee5575"
+    },
+    "s7": {
+      "file": "pkgs/api/src/api-functions/documents/publishDocument.ts",
+      "sha256": "58a8cefcb6752b351ecac029e1907eb45ceae02eeb09f47908f7f3eb5844b702"
+    },
+    "s8": {
+      "file": "pkgs/einvoice-backend-shared/src/flows/prepareTransmitEInvoice.ts",
+      "sha256": "b7877c72c6987d2e6c3b25bebdf16801ca296f46bd2abb3217649bcc21733d88"
+    },
+    "s9": {
+      "file": "pkgs/einvoice-backend-shared/src/flows/prepareTransmitEInvoice.ts",
+      "sha256": "b7877c72c6987d2e6c3b25bebdf16801ca296f46bd2abb3217649bcc21733d88"
+    },
+    "s10": {
+      "file": "pkgs/api/src/api-functions/documents/publishDocumentHelpers/prepareAndCommitPublish.ts",
+      "sha256": "927456fda560cdeea54ebf3a000c2c872afa05b16326856bc2e7c68fee63e2f7"
+    },
+    "s11": {
+      "file": "pkgs/api/src/api-functions/documents/publishDocumentHelpers/runPostPublishFollowUps.ts",
+      "sha256": "20ecc3a7e99efa852227227d9ff9437dcedee6135f33428cba0f4e4b633fad47"
+    }
+  },
+  "regions": [
+    {
+      "id": "browser",
+      "label": "1 · BROWSER · before HTTP request"
+    },
+    {
+      "id": "api",
+      "label": "2 · API · before background job"
+    },
+    {
+      "id": "worker",
+      "label": "3 · BACKGROUND JOB · before and after commit"
+    }
+  ],
+  "edgeTypes": {
+    "sequence": {
+      "relation": "sequence"
+    },
+    "http": {
+      "relation": "handoff"
+    },
+    "queue": {
+      "relation": "handoff"
+    }
+  },
+  "defaults": {
+    "origin": "agent",
+    "evidence": "endpoint-sources"
+  },
+  "nodeFields": [],
+  "edgeFields": [],
+  "nodes": [
+    {
+      "id": "n00",
+      "kind": "call",
+      "line": 198,
+      "title": "Recipient pre-check",
+      "hint": "CHECK · stop if guard fails",
+      "region": "browser",
+      "source": "s0"
+    },
+    {
+      "id": "n01",
+      "kind": "call",
+      "line": 129,
+      "title": "Wait for pending edits to save",
+      "hint": "After confirmation, if required",
+      "region": "browser",
+      "source": "s1"
+    },
+    {
+      "id": "n02",
+      "kind": "call",
+      "line": 131,
+      "title": "Call publish API",
+      "hint": "HTTP request",
+      "region": "browser",
+      "source": "s2"
+    },
+    {
+      "id": "n03",
+      "kind": "call",
+      "line": 29,
+      "title": "publishDocumentRequest",
+      "hint": "Access + draft checks first",
+      "region": "api",
+      "source": "s3"
+    },
+    {
+      "id": "n04",
+      "kind": "call",
+      "line": 109,
+      "title": "assertRegimeContentValid",
+      "hint": "CHECK · when regime applies",
+      "region": "api",
+      "source": "s4"
+    },
+    {
+      "id": "n05",
+      "kind": "call",
+      "line": 125,
+      "title": "Mark publishing; enqueue job",
+      "hint": "Returns still-unpublished draft to browser",
+      "region": "api",
+      "source": "s5"
+    },
+    {
+      "id": "n06",
+      "kind": "call",
+      "line": 95,
+      "title": "runPublishDocumentJob",
+      "hint": "Load saved data; determine number",
+      "region": "worker",
+      "source": "s6"
+    },
+    {
+      "id": "n07",
+      "kind": "call",
+      "line": 22,
+      "title": "Generate and save PDF",
+      "hint": "Inside publishDocument",
+      "region": "worker",
+      "source": "s7"
+    },
+    {
+      "id": "n08",
+      "kind": "call",
+      "line": 65,
+      "title": "gateRegimeContentChecks",
+      "hint": "CHECK · prepareTransmitEInvoice",
+      "region": "worker",
+      "source": "s8"
+    },
+    {
+      "id": "n09",
+      "kind": "call",
+      "line": 72,
+      "title": "Check recipient; sync contact",
+      "hint": "CHECK · validateAndSyncB2BRouterContact",
+      "region": "worker",
+      "source": "s9"
+    },
+    {
+      "id": "n10",
+      "kind": "call",
+      "line": 73,
+      "title": "Commit publication",
+      "hint": "Invoice is now published",
+      "region": "worker",
+      "source": "s10"
+    },
+    {
+      "id": "n11",
+      "kind": "call",
+      "line": 62,
+      "title": "transmitEInvoice",
+      "hint": "Create provider invoice; save status/error",
+      "region": "worker",
+      "source": "s11"
+    }
+  ],
+  "edges": [
+    {
+      "from": "n00",
+      "to": "n01",
+      "type": "sequence",
+      "label": ""
+    },
+    {
+      "from": "n01",
+      "to": "n02",
+      "type": "sequence",
+      "label": ""
+    },
+    {
+      "from": "n02",
+      "to": "n03",
+      "type": "http",
+      "label": "Request"
+    },
+    {
+      "from": "n03",
+      "to": "n04",
+      "type": "sequence",
+      "label": ""
+    },
+    {
+      "from": "n04",
+      "to": "n05",
+      "type": "sequence",
+      "label": ""
+    },
+    {
+      "from": "n05",
+      "to": "n06",
+      "type": "queue",
+      "label": "Background task"
+    },
+    {
+      "from": "n06",
+      "to": "n07",
+      "type": "sequence",
+      "label": ""
+    },
+    {
+      "from": "n07",
+      "to": "n08",
+      "type": "sequence",
+      "label": ""
+    },
+    {
+      "from": "n08",
+      "to": "n09",
+      "type": "sequence",
+      "label": ""
+    },
+    {
+      "from": "n09",
+      "to": "n10",
+      "type": "sequence",
+      "label": ""
+    },
+    {
+      "from": "n10",
+      "to": "n11",
+      "type": "sequence",
+      "label": ""
+    }
+  ]
+}

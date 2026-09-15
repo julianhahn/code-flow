@@ -1,0 +1,707 @@
+{
+  "version": 1,
+  "title": "publishDocumentRequest \u2014 verified function body",
+  "regions": [
+    {
+      "id": "api",
+      "label": "API \u00b7 publishDocumentRequest \u00b7 branch lanes, same function depth"
+    }
+  ],
+  "edgeTypes": {
+    "sequence": {
+      "relation": "sequence"
+    },
+    "http": {
+      "relation": "handoff"
+    },
+    "queue": {
+      "relation": "handoff"
+    },
+    "call": {
+      "relation": "call"
+    },
+    "return": {
+      "relation": "return"
+    },
+    "response": {
+      "relation": "response"
+    },
+    "loop": {
+      "relation": "loop"
+    }
+  },
+  "nodes": [
+    {
+      "id": "n00",
+      "title": "validateType(args)",
+      "kind": "call",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 33,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Invalid input \u2192 throw; stop",
+      "region": "api"
+    },
+    {
+      "id": "n01",
+      "title": "await requiresOfficeMember",
+      "kind": "call",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 35,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Access failure \u2192 throw; stop",
+      "region": "api"
+    },
+    {
+      "id": "n02",
+      "title": "await getDocumentById",
+      "kind": "call",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 44,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Read saved document",
+      "region": "api"
+    },
+    {
+      "id": "n03",
+      "title": "Document missing?",
+      "kind": "condition",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 50,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Condition",
+      "region": "api"
+    },
+    {
+      "id": "n04",
+      "title": "STOP \u00b7 document not found",
+      "kind": "throw",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 51,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Throws \u00b7 no later steps",
+      "region": "api"
+    },
+    {
+      "id": "n05",
+      "title": "assertDocumentNotPublished",
+      "kind": "call",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 58,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Already published \u2192 throw; stop",
+      "region": "api"
+    },
+    {
+      "id": "n06",
+      "title": "Expected version supplied?",
+      "kind": "condition",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 63,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Condition",
+      "region": "api"
+    },
+    {
+      "id": "n07",
+      "title": "assertDraftRevisionUnchanged",
+      "kind": "call",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 64,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Mismatch \u2192 throw; stop",
+      "region": "api"
+    },
+    {
+      "id": "n08",
+      "title": "Already publishing?",
+      "kind": "condition",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 72,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Condition",
+      "region": "api"
+    },
+    {
+      "id": "n09",
+      "title": "STOP \u00b7 already publishing",
+      "kind": "throw",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 73,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Throws \u00b7 no later steps",
+      "region": "api"
+    },
+    {
+      "id": "n10",
+      "title": "Selected bank account missing?",
+      "kind": "condition",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 82,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "ID supplied AND not in workspace",
+      "region": "api"
+    },
+    {
+      "id": "n11",
+      "title": "STOP \u00b7 bank account missing",
+      "kind": "throw",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 85,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Throws \u00b7 no later steps",
+      "region": "api"
+    },
+    {
+      "id": "n12",
+      "title": "await configuration; resolve regime",
+      "kind": "call",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 92,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Read config first; then resolve",
+      "region": "api"
+    },
+    {
+      "id": "n13",
+      "title": "Content checks apply?",
+      "kind": "condition",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 97,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Country + configuration + document type",
+      "region": "api"
+    },
+    {
+      "id": "n14",
+      "title": "await BlocksRepository.getBlocks",
+      "kind": "call",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 103,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Only when checks apply",
+      "region": "api"
+    },
+    {
+      "id": "n15",
+      "title": "generate blocks; assert content",
+      "kind": "call",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 109,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Failed check \u2192 throw; stop",
+      "region": "api"
+    },
+    {
+      "id": "n16",
+      "title": "await markDocumentPublishing",
+      "kind": "call",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 117,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Set publishing state",
+      "region": "api"
+    },
+    {
+      "id": "n17",
+      "title": "await enqueuePublishDocument",
+      "kind": "call",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 125,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "TRY \u00b7 hand work to background queue",
+      "region": "api"
+    },
+    {
+      "id": "n18",
+      "title": "RETURN \u00b7 still-unpublished draft",
+      "kind": "return",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 142,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Success \u00b7 original request ends",
+      "region": "api"
+    },
+    {
+      "id": "n19",
+      "title": "await clearDocumentPublishing",
+      "kind": "call",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 134,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "CATCH \u00b7 clear publishing state",
+      "region": "api"
+    },
+    {
+      "id": "n20",
+      "title": "STOP \u00b7 rethrow queue error",
+      "kind": "throw",
+      "source": {
+        "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+        "line": 139,
+        "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+      },
+      "hint": "Cleanup rejection also stops request",
+      "region": "api"
+    }
+  ],
+  "edges": [
+    {
+      "from": "n00",
+      "to": "n01",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 33,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 35,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n01",
+      "to": "n02",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 35,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 44,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n02",
+      "to": "n03",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 44,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 50,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n05",
+      "to": "n06",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 58,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 63,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n12",
+      "to": "n13",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 92,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 97,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n14",
+      "to": "n15",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 103,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 109,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n16",
+      "to": "n17",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 117,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 125,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n19",
+      "to": "n20",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 134,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 139,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n03",
+      "to": "n04",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "YES",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 50,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 51,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n03",
+      "to": "n05",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "NO",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 50,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 58,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n06",
+      "to": "n07",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "YES",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 63,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 64,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n06",
+      "to": "n08",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "NO",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 63,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 72,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n07",
+      "to": "n08",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "PASS",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 64,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 72,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n08",
+      "to": "n09",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "YES",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 72,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 73,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n08",
+      "to": "n10",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "NO",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 72,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 82,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n10",
+      "to": "n11",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "YES",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 82,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 85,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n10",
+      "to": "n12",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "NO",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 82,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 92,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n13",
+      "to": "n14",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "YES",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 97,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 103,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n13",
+      "to": "n16",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "NO",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 97,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 117,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n15",
+      "to": "n16",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "PASS",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 109,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 117,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n17",
+      "to": "n18",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "SUCCESS",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 125,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 142,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    },
+    {
+      "from": "n17",
+      "to": "n19",
+      "type": "sequence",
+      "origin": "agent",
+      "label": "THROWS",
+      "evidence": [
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 125,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        },
+        {
+          "file": "pkgs/api/src/api-functions/documents/publishDocumentRequest.ts",
+          "line": 134,
+          "sha256": "cb9003e06d98d86ae6d1d1cdbfd7f3e9ec9fb253e3b8b98fb94b116f9e9210c3"
+        }
+      ]
+    }
+  ]
+}

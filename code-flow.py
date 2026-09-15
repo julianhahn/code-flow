@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 """Read-only prototype. Graph order is source order, not execution proof."""
 import json
+import os
+from flow_model import render, FlowError
 import math
 import cairo
 import sqlite3
@@ -8,9 +10,9 @@ import subprocess
 from pathlib import Path
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gdk, GdkPixbuf
+from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
 
-ROOT = Path('/home/julian/plancraft')
+ROOT = Path(os.environ.get('CODE_FLOW_ROOT', '/home/julian/plancraft'))
 meta = json.loads((ROOT / '.tokensave/branch-meta.json').read_text())
 con = sqlite3.connect(f"file:{ROOT / '.tokensave' / meta['branches']['main']['db_file']}?mode=ro", uri=True)
 con.row_factory = sqlite3.Row
@@ -24,6 +26,7 @@ class Window(Gtk.Window):
         super().__init__(title='Code Flow — Prototype')
         self.set_default_size(1320, 820)
         self.connect('destroy', Gtk.main_quit)
+        self.flow_path = Path(__file__).with_name('flows') / 'publish-request.compact.json'
         self.expanded = set()
         self.zoom = 1.0
         self.pan_origin = None
@@ -36,7 +39,7 @@ class Window(Gtk.Window):
         self.query = Gtk.SearchEntry(placeholder_text='Function name…')
         self.query.connect('activate', self.search)
         bar.pack_start(self.query, True, True, 0)
-        for label, fn in [('Find function', self.search), ('Publish example', self.example), ('Collapse all', self.collapse)]:
+        for label, fn in [('Find function', self.search), ('Publish example', self.example), ('Open flow JSON', self.open_flow), ('Collapse all', self.collapse)]:
             b = Gtk.Button(label=label)
             b.connect('clicked', fn)
             bar.pack_start(b, False, False, 0)
@@ -95,7 +98,18 @@ class Window(Gtk.Window):
                 self.layout()
         dialog.destroy()
 
+    def open_flow(self, *_):
+        dialog = Gtk.FileChooserDialog(title='Open a flow JSON', transient_for=self, action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons('Cancel', Gtk.ResponseType.CANCEL, 'Open', Gtk.ResponseType.OK)
+        dialog.set_current_folder(str(Path(__file__).with_name('flows')))
+        if dialog.run() == Gtk.ResponseType.OK:
+            self.flow_path = Path(dialog.get_filename())
+            self.verified = True
+            self.layout()
+        dialog.destroy()
+
     def example(self, *_):
+        self.flow_path = Path(os.environ.get('CODE_FLOW_FILE', str(Path(__file__).with_name('flows') / 'publish-request.compact.json')))
         self.verified = True
         self.layout()
 
@@ -144,6 +158,7 @@ class Window(Gtk.Window):
         return root, resume, cursor + W, bottom
 
     def layout(self):
+        self.bands = []
         self.nodes, self.edges, self.labels = [], [], []
         y, right = 60, 1100
         for i, (label, row) in enumerate(self.roots):
@@ -156,10 +171,13 @@ class Window(Gtk.Window):
                 self.card(30, y, 'Entry missing from index')
                 y += DY
         if getattr(self, 'verified', False):
-            import runpy
             self.nodes, self.edges, self.labels = [], [], []
-            flow = runpy.run_path(str(Path(__file__).with_name('publish-request-flow.py')))
-            right, y = flow['build'](self, W, H)
+            try:
+                right, y = render(self, self.flow_path, ROOT, W, H)
+            except (FlowError, ValueError, KeyError, TypeError, OSError) as error:
+                self.nodes, self.edges, self.labels = [], [], []
+                self.notice.set_text('Cannot display flow: ' + str(error))
+                right, y = 1100, 500
         width, height = min(int(right), 30000), min(int(y), 10000)
         self.canvas.set_size_request(width, height)
         surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
@@ -171,7 +189,19 @@ class Window(Gtk.Window):
         loader.write(data.getvalue())
         loader.close()
         self.original_pixbuf = loader.get_pixbuf()
+        self.zoom = 1.0
         self.apply_zoom()
+        GLib.timeout_add(100, self.focus_start)
+
+    def focus_start(self):
+        if not self.nodes:
+            return False
+        first = min(self.nodes, key=lambda n: (n['x'], n['y']))
+        for adjustment, value in [(self.scroll.get_hadjustment(), first['x'] * self.zoom - 30),
+                                  (self.scroll.get_vadjustment(), first['y'] * self.zoom - 65)]:
+            adjustment.set_value(max(adjustment.get_lower(), min(adjustment.get_upper() - adjustment.get_page_size(), value)))
+        self.canvas.grab_focus()
+        return False
 
     def text(self, cr, x, y, text, size=13, color=(.82,.85,.91)):
         cr.set_source_rgb(*color)
@@ -182,6 +212,16 @@ class Window(Gtk.Window):
     def draw(self, widget, cr):
         cr.set_source_rgb(.075,.09,.12)
         cr.paint()
+        for index, (top, bottom, right, label) in enumerate(sorted(self.bands)):
+            colors = [(.105,.14,.19), (.13,.12,.18), (.10,.16,.15)]
+            cr.set_source_rgb(*colors[index % len(colors)])
+            cr.rectangle(8, top, right-16, bottom-top)
+            cr.fill()
+            cr.set_source_rgb(.32,.39,.47)
+            cr.set_line_width(1)
+            cr.move_to(8, top); cr.line_to(right-8, top)
+            cr.move_to(8, bottom); cr.line_to(right-8, bottom)
+            cr.stroke()
         for a, b, kind in self.edges:
             if kind == 'sequence':
                 ax, ay = a['x']+W, a['y']+H/2
