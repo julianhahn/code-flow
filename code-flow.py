@@ -27,6 +27,8 @@ class Window(Gtk.Window):
         self.set_default_size(1320, 820)
         self.connect('destroy', Gtk.main_quit)
         self.flow_path = Path(__file__).with_name('flows') / 'publish-request.compact.json'
+        self.view_mode = os.environ.get('CODE_FLOW_START_VIEW', 'flow')
+        self.diff_base = os.environ.get('CODE_FLOW_DIFF_BASE', 'origin/main')
         self.expanded = set()
         self.zoom = 1.0
         self.pan_origin = None
@@ -39,7 +41,7 @@ class Window(Gtk.Window):
         self.query = Gtk.SearchEntry(placeholder_text='Function name…')
         self.query.connect('activate', self.search)
         bar.pack_start(self.query, True, True, 0)
-        for label, fn in [('Find function', self.search), ('Publish example', self.example), ('Open flow JSON', self.open_flow), ('Collapse all', self.collapse)]:
+        for label, fn in [('PR diff overview', self.diff_overview), ('Find function', self.search), ('Publish example', self.example), ('Open flow JSON', self.open_flow), ('Collapse all', self.collapse) ]:
             b = Gtk.Button(label=label)
             b.connect('clicked', fn)
             bar.pack_start(b, False, False, 0)
@@ -67,6 +69,50 @@ class Window(Gtk.Window):
     def collapse(self, *_):
         self.expanded.clear()
         self.layout()
+
+    def diff_overview(self, *_):
+        self.view_mode = 'diff'
+        self.notice.set_text('PR DIFF · left to right: DBTypes → Frontend → Shared/API → Backend. Click a card to read its diff. Set CODE_FLOW_DIFF_BASE to compare another base.')
+        self.layout()
+
+    def show_diff(self, path, diff):
+        dialog = Gtk.Dialog(title=f'Diff · {path}', transient_for=self, modal=False)
+        dialog.set_default_size(1100, 760)
+        dialog.add_button('Close', Gtk.ResponseType.CLOSE)
+        view = Gtk.TextView()
+        view.set_editable(False)
+        view.set_monospace(True)
+        view.set_wrap_mode(Gtk.WrapMode.NONE)
+        view.get_buffer().set_text(diff or 'No diff for this file.')
+        scroll = Gtk.ScrolledWindow()
+        scroll.add(view)
+        dialog.get_content_area().pack_start(scroll, True, True, 0)
+        dialog.show_all()
+        dialog.connect('response', lambda *_: dialog.destroy())
+
+    def diff_rows(self):
+        result = subprocess.run(['git', 'diff', '--no-ext-diff', '--unified=3', self.diff_base, '--'], cwd=ROOT, text=True, capture_output=True, timeout=60)
+        if result.returncode != 0:
+            self.notice.set_text(f'Cannot read diff against {self.diff_base}: {result.stderr.strip()}')
+            return []
+        names = subprocess.run(['git', 'diff', '--no-ext-diff', '--name-status', self.diff_base, '--'], cwd=ROOT, text=True, capture_output=True, timeout=60)
+        rows = []
+        for line in names.stdout.splitlines():
+            parts = line.split('\t')
+            if len(parts) < 2:
+                continue
+            path = parts[-1]
+            marker = parts[0]
+            rows.append({'name': path, 'file_path': path, 'start_line': 1, 'diff': self.file_diff(result.stdout, path), 'status': marker})
+        return rows
+
+    @staticmethod
+    def file_diff(full_diff, path):
+        chunks = full_diff.split('diff --git ')
+        for chunk in chunks[1:]:
+            if f' b/{path}' in chunk.splitlines()[0]:
+                return 'diff --git ' + chunk
+        return ''
 
     def search(self, *_):
         q = self.query.get_text().strip()
@@ -160,6 +206,9 @@ class Window(Gtk.Window):
     def layout(self):
         self.bands = []
         self.nodes, self.edges, self.labels = [], [], []
+        if self.view_mode == 'diff':
+            self.layout_diff()
+            return
         y, right = 60, 1100
         for i, (label, row) in enumerate(self.roots):
             self.labels.append((30, y - 22, label))
@@ -191,6 +240,35 @@ class Window(Gtk.Window):
         self.original_pixbuf = loader.get_pixbuf()
         self.zoom = 1.0
         self.apply_zoom()
+        GLib.timeout_add(100, self.focus_start)
+
+    def layout_diff(self):
+        rows = self.diff_rows()
+        order = [('DBTypes', ('dbtypes', 'db-types', 'types')), ('Frontend', ('frontend', 'frontend-web', 'web')), ('Shared/API', ('shared', 'contract', 'api')), ('Backend', ('backend', 'service', 'functions'))]
+        columns = {label: [] for label, _ in order}
+        for row in rows:
+            lower = row['file_path'].lower()
+            label = next((label for label, hints in order if any(hint in lower for hint in hints)), 'Shared/API')
+            columns[label].append(row)
+        x_positions = {label: 30 + index * (W + 70) for index, (label, _) in enumerate(order)}
+        max_y = 90
+        for label, _ in order:
+            x = x_positions[label]
+            self.labels.append((x, 48, label.upper()))
+            for index, row in enumerate(columns[label]):
+                card = self.card(x, 70 + index * (H + 28), f"{row['status']}  {row['name']}", row, None, 'Click to open diff')
+                card['kind'] = 'condition' if row['status'] == 'M' else 'call'
+                max_y = max(max_y, card['y'] + H + 40)
+            if columns[label]:
+                max_y = max(max_y, 70 + len(columns[label]) * (H + 28))
+        width = max(1100, 30 + len(order) * (W + 70))
+        self.canvas.set_size_request(width, max_y)
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, max_y)
+        self.draw(None, cairo.Context(surface))
+        import io
+        data = io.BytesIO(); surface.write_to_png(data)
+        loader = GdkPixbuf.PixbufLoader.new_with_type('png'); loader.write(data.getvalue()); loader.close()
+        self.original_pixbuf = loader.get_pixbuf(); self.zoom = 1.0; self.apply_zoom()
         GLib.timeout_add(100, self.focus_start)
 
     def focus_start(self):
@@ -352,7 +430,9 @@ class Window(Gtk.Window):
         for n in reversed(self.nodes):
             if n['x'] <= x <= n['x']+W and n['y'] <= y <= n['y']+H:
                 if n['row'] is None: return
-                if 55 <= y-n['y'] <= H-35:
+                if self.view_mode == 'diff' and n['row'].get('diff') is not None:
+                    self.show_diff(n['row']['file_path'], n['row']['diff'])
+                elif 55 <= y-n['y'] <= H-35:
                     p=(ROOT / n['row']['file_path']).resolve()
                     if p.is_relative_to(ROOT) and p.is_file():
                         subprocess.Popen(['zed', str(p)+':'+str(n['row']['start_line'])])

@@ -1,0 +1,24 @@
+#code-flow-review { background: #f3f5f9; color: #202c42; }
+#code-flow-review label { color: #26334a; }
+#code-flow-review entry, #code-flow-review button { border-radius: 8px; min-height: 30px; }
+#code-flow-review entry { background: #ffffff; color: #202c42; border: 1px solid #ccd4e1; padding: 5px 10px; }
+#code-flow-review button { background-image: none; background-color: #ffffff; color: #26334a; border: 1px solid #ccd4e1; padding: 5px 14px; box-shadow: none; }
+#code-flow-review button:hover { background-color: #e9eef8; }
+#code-flow-review button.primary { background-color: #365bd6; border-color: #365bd6; color: #ffffff; font-weight: bold; padding: 8px 22px; }
+#code-flow-review button.primary label { color: #ffffff; }
+#code-flow-review button.primary:hover { background-color: #2849b6; }
+#code-flow-review button:disabled { opacity: 0.5; }
+#code-flow-review .overview-card { background: #ffffff; border: 1px solid #dce2ed; border-radius: 14px; padding: 28px; }
+#code-flow-review .eyebrow { color: #65738a; font-size: 10pt; font-weight: bold; letter-spacing: 1px; }
+#code-flow-review .review-title { font-size: 23pt; font-weight: bold; color: #172640; margin-bottom: 8px; }
+#code-flow-review .muted { color: #69788e; font-size: 10pt; }
+#code-flow-review .badge { border-radius: 7px; padding: 7px 12px; font-size: 10pt; font-weight: bold; }
+#code-flow-review .good { background: #e8f5ed; color: #20663d; }
+#code-flow-review .attention { background: #fff1d9; color: #855013; }
+#code-flow-review .neutral { background: #edf0f8; color: #53617c; }
+#code-flow-review .stats { background: #f3f6fb; border-radius: 8px; padding: 14px; font-size: 12pt; font-weight: bold; margin-top: 8px; }
+#code-flow-review label.stat-added { color: #176b36; }
+#code-flow-review label.stat-removed { color: #b42332; }
+#code-flow-review label.stat-files { color: #53617c; }
+#code-flow-review .purpose { font-size: 14pt; color: #30415b; margin-top: 2px; margin-bottom: 12px; }
+#code-flow-review .section-title { font-size: 10pt; color: #69788e; font-weight: bold; margin-top: 16px; }
