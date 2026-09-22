@@ -12,7 +12,10 @@ class ReviewProgress:
         self.head = head
         self.file_commits = file_commits
         if database is None and scope:
-            root = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'code-flow'
+            # Some launchers export XDG_STATE_HOME as an empty string. Treat
+            # that like an unset variable, or SQLite ends up in the current
+            # working directory and is easy to lose between launches.
+            root = Path(os.environ.get('XDG_STATE_HOME') or (Path.home() / '.local/state')) / 'code-flow'
             root.mkdir(parents=True, exist_ok=True)
             database = root / 'review-progress.sqlite3'
         self.connection = sqlite3.connect(str(database) if database else ':memory:')
