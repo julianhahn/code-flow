@@ -3,6 +3,29 @@ from diff_canvas import group, patch_lines, DiffCanvas, Gtk
 
 
 class CanvasTests(unittest.TestCase):
+    def test_long_lines_wrap_without_changing_buffer_text(self):
+        from diff_canvas import Pango
+        line = 'word ' * 400
+        patch = '@@ -0,0 +1 @@\n+' + line
+        canvas = DiffCanvas([('A', 'notes.md', 'notes.md', patch)])
+        try:
+            for zoom in (1.0, .25, 1.5):
+                canvas.set_zoom(zoom)
+                text = next(child for child in canvas.cards['notes.md'].get_children()
+                            if isinstance(child, Gtk.TextView))
+                self.assertEqual(text.get_wrap_mode(), Gtk.WrapMode.WORD_CHAR)
+                buffer = text.get_buffer()
+                self.assertEqual(buffer.get_text(*buffer.get_bounds(), True), patch_lines(patch)[0][1])
+                font = Pango.FontDescription('Monospace')
+                font.set_size(round(max(3, 11 * zoom) * Pango.SCALE))
+                measure = text.create_pango_layout('0' * 300)
+                measure.set_font_description(font)
+                width, height = text.get_size_request()
+                self.assertEqual(width, measure.get_pixel_size()[0] + 24)
+                self.assertGreater(height, measure.get_pixel_size()[1] * 2)
+        finally:
+            canvas.destroy()
+
     def test_long_cards_do_not_overlap_next_column_after_zoom(self):
         import time
         long_patch = '@@ -1 +1 @@\n-' + 'old ' * 120 + '\n+' + 'new ' * 120
@@ -74,7 +97,41 @@ class CanvasTests(unittest.TestCase):
             active.get_style_context().add_class('focused-card')
         canvas.sticky_viewed.set_active(True)
         self.assertTrue(canvas.progress.is_viewed(('A', paths[1], paths[1], patch)))
-        window.hide()
+        while Gtk.events_pending(): Gtk.main_iteration()
+        self.assertAlmostEqual(canvas.scroll.get_vadjustment().get_value(), canvas.card_positions[1][2])
+        self.assertEqual(canvas.active_file[2], paths[1])
+        canvas.jump_to_file(paths[0])
+        while Gtk.events_pending(): Gtk.main_iteration()
+        self.assertAlmostEqual(canvas.scroll.get_vadjustment().get_value(), canvas.card_positions[0][2])
+        self.assertEqual(canvas.active_file[2], paths[0])
+        window.destroy()
+
+    def test_focus_uses_viewport_center_instead_of_topmost_header(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        files = [('M', name, name, '') for name in ('collapsed.ts', 'reading.ts', 'side.ts')]
+        state = SimpleNamespace(
+            rendering=False,
+            scroll=SimpleNamespace(
+                get_hadjustment=lambda: Gtk.Adjustment(value=0, upper=2000, page_size=800),
+                get_vadjustment=lambda: Gtk.Adjustment(value=0, upper=2000, page_size=600)),
+            card_positions=[], cards={}, focused_card=None,
+            sticky_viewed=Mock(), sticky_handler=1, progress=Mock(),
+            open_file=Mock(), open_file_button=Mock(),
+            path_label=Mock(), file_label=Mock())
+        cases = [
+            # Collapsed header above the large file being read.
+            [(files[0], 0, 0, 800, 40), (files[1], 0, 100, 800, 1500)],
+            # Center is in a gap: choose the nearer card edge.
+            [(files[0], 0, 0, 800, 100), (files[1], 0, 350, 800, 200)],
+            # Another column is visible, but not under the center.
+            [(files[2], 0, 0, 100, 600), (files[1], 200, 0, 600, 600)],
+        ]
+        for positions in cases:
+            with self.subTest(positions=positions):
+                state.card_positions = positions
+                DiffCanvas.update_location(state)
+                self.assertEqual(state.active_file, files[1])
 
     def test_wheel_burst_redraws_once_after_pause(self):
         from types import SimpleNamespace
@@ -99,6 +156,23 @@ class CanvasTests(unittest.TestCase):
         canvas.destroy()
         self.assertIsNone(canvas.zoom_timer)
 
+    def test_open_in_zed_uses_file_path_and_disables_deleted_files(self):
+        from unittest.mock import Mock
+        open_file = Mock()
+        files = [('M', 'old.ts', 'renamed.ts', '@@ -1 +1 @@\n-old\n+new'),
+                 ('D', 'deleted.ts', 'deleted.ts', '@@ -1 +0,0 @@\n-old')]
+        canvas = DiffCanvas(files, open_file=open_file)
+        try:
+            for file in files:
+                header = canvas.cards[file[2]].get_children()[0]
+                self.assertFalse(any(isinstance(child, Gtk.Button) and child.get_label() == 'Open in Zed'
+                                     for child in header.get_children()))
+                canvas.active_file = file
+                canvas.open_file_button.clicked()
+            open_file.assert_called_once_with('renamed.ts')
+        finally:
+            canvas.destroy()
+
     def test_groups(self):
         self.assertEqual(group('pkgs/document-backend-shared/src/a.ts'), 'Backend')
         self.assertEqual(group('pkgs/document-shared/src/a.ts'), 'Shared/API')
@@ -106,8 +180,8 @@ class CanvasTests(unittest.TestCase):
 
     def test_hunks_and_colors(self):
         lines = patch_lines('diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -2,2 +2,2 @@\n-old\n+new\n same')
-        self.assertEqual([kind for kind, _ in lines], ['hunk','del','add','context'])
-        self.assertIn('2', lines[1][1])
+        self.assertEqual([kind for kind, _ in lines], ['del','add','context'])
+        self.assertIn('2', lines[0][1])
         self.assertNotIn('--- a/a', str(lines))
 
     def test_folder_nodes_and_open_cards(self):

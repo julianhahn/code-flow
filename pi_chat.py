@@ -54,9 +54,9 @@ class PiChat:
             return []
         return [json.loads(line) for line in path.read_text().split('\n') if line.strip()]
 
-    def append(self, role, text, context=None):
+    def append(self, role, text, context=None, runtime=None):
         with (self.directory / 'conversation.jsonl').open('a') as stream:
-            stream.write(json.dumps(dict(role=role, text=text, context=context), ensure_ascii=True) + '\n')
+            stream.write(json.dumps(dict(role=role, text=text, context=context, runtime=runtime), ensure_ascii=True) + '\n')
             stream.flush()
 
     def stop(self):
@@ -73,6 +73,7 @@ class PiChat:
         self.stopped.clear()
         process = None
         answer = ''
+        runtime = {}
         recorded = False
         terminal = ('error', 'Pi stopped unexpectedly.')
         lock = (self.directory / 'session.lock').open('a')
@@ -90,7 +91,7 @@ class PiChat:
                                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors)
                 def send(value):
                     process.stdin.write((json.dumps(value) + '\n').encode()); process.stdin.flush()
-                send({'type': 'prompt', 'id': 'question', 'message': prompt(context, question)})
+                send({'type': 'get_state', 'id': 'runtime'})
                 buffer = b''
                 deadline = time.monotonic() + 110
                 with selectors.DefaultSelector() as selector:
@@ -109,7 +110,14 @@ class PiChat:
                             except (ValueError, UnicodeDecodeError):
                                 continue
                             kind = event.get('type')
-                            if kind == 'response' and event.get('command') == 'prompt':
+                            if kind == 'response' and event.get('id') == 'runtime':
+                                state = event.get('data') or {}
+                                model = state.get('model') or {}
+                                runtime = dict(provider=model.get('provider'), model=model.get('id'),
+                                               effort=state.get('thinkingLevel'), source='target')
+                                emit('runtime', dict(runtime))
+                                send({'type': 'prompt', 'id': 'question', 'message': prompt(context, question)})
+                            elif kind == 'response' and event.get('command') == 'prompt':
                                 if not event.get('success'):
                                     raise RuntimeError(event.get('error', 'Pi rejected the question'))
                             elif kind == 'message_update':
@@ -120,20 +128,23 @@ class PiChat:
                                 emit('status', 'Reading with ' + event.get('toolName', 'tool'))
                             elif kind == 'message_end':
                                 message = event.get('message', {})
+                                if message.get('role') == 'assistant' and message.get('model'):
+                                    runtime.update(model=message['model'], provider=message.get('provider'), source='used')
+                                    emit('runtime', dict(runtime))
                                 if message.get('stopReason') == 'error':
                                     raise RuntimeError(message.get('errorMessage', 'Model request failed'))
                             elif kind == 'extension_ui_request':
                                 send({'type': 'extension_ui_response', 'id': event['id'], 'cancelled': True})
                             elif kind == 'agent_settled':
                                 self.check_head(context)
-                                self.append('assistant', answer or '(No text response.)', context)
+                                self.append('assistant', answer or '(No text response.)', context, runtime)
                                 terminal = ('done', answer)
                                 return
                 raise RuntimeError('Stopped.' if self.stopped.is_set() else 'Stopped after 110 seconds. Ask a smaller question or retry.')
         except Exception as error:
             text = (answer + '\n\n' if answer else '') + '[Incomplete] ' + str(error)
             if recorded:
-                self.append('assistant', text, context)
+                self.append('assistant', text, context, runtime)
             terminal = ('error', str(error))
         finally:
             if process is not None:

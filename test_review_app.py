@@ -5,7 +5,48 @@ from review_app import ReviewWindow, Gtk
 
 
 class OverviewTests(unittest.TestCase):
+    def test_v_toggles_focused_file_but_not_while_typing(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from review_app import Gdk
+        board = SimpleNamespace(active_file=('M', 'a', 'a', ''), sticky_viewed=Gtk.CheckButton())
+        state = Mock()
+        state.views.get_visible_child_name.return_value = 'map'
+        state.views.get_child_by_name.return_value = board
+        state.get_focus.return_value = None
+        event = SimpleNamespace(keyval=Gdk.KEY_v, state=0)
+        self.assertTrue(ReviewWindow.review_key(state, None, event))
+        self.assertTrue(board.sticky_viewed.get_active())
+        self.assertTrue(ReviewWindow.review_key(state, None, event))
+        self.assertFalse(board.sticky_viewed.get_active())
+        for focus in (Gtk.Entry(), Gtk.TextView()):
+            state.get_focus.return_value = focus
+            self.assertFalse(ReviewWindow.review_key(state, None, event))
+        state.get_focus.return_value = None
+        event.state = Gdk.ModifierType.CONTROL_MASK
+        self.assertFalse(ReviewWindow.review_key(state, None, event))
+        board.sticky_viewed.destroy()
+
+    def test_recent_reviews_show_reopened_item_first_on_dashboard(self):
+        w = self.window
+        w.remember_selection('pr', '12', 'First review')
+        w.remember_selection('branch', 'feature', 'Second review')
+        w.remember_selection('pr', '12', 'First review')
+        self.assertEqual([item['value'] for item in w.recent_selections()], ['12', 'feature'])
+        w.show_overview(('origin/feature', self.metadata))
+        w.reset_selection()
+        self.assertIs(w.recent_panel.get_parent(), w.canvas)
+        buttons = [child for child in w.recent_panel.get_children() if isinstance(child, Gtk.Button)]
+        self.assertEqual([button.get_label() for button in buttons],
+                         ['Pr · Example change', 'Branch · Second review'])
+
     def setUp(self):
+        import tempfile
+        self.state_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.state_directory.cleanup)
+        self.environment = patch.dict('os.environ', {'XDG_STATE_HOME': self.state_directory.name})
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
         with patch.object(ReviewWindow, 'refresh'):
             self.window = ReviewWindow()
         self.window.show_all()
@@ -28,6 +69,17 @@ class OverviewTests(unittest.TestCase):
     def labels(self):
         return [w.get_text() for w in self.window.canvas.get_children()[0].get_children()
                 if isinstance(w, Gtk.Label)]
+
+    def test_branch_search_is_fuzzy_and_prefers_literal_matches(self):
+        w = self.window
+        w.branch_options = ['feat/einvoice-error-checklist-model', 'feat/einvcheck', 'other']
+        w.branch.set_text('EINV CHECK')
+        labels = [row.get_child().get_text() for row in w.branch_list.get_children()]
+        self.assertEqual(labels, ['feat/einvcheck', 'feat/einvoice-error-checklist-model'])
+        w.branch.set_text('')
+        self.assertEqual([row.get_child().get_text() for row in w.branch_list.get_children()], w.branch_options)
+        w.branch.set_text('zzzz')
+        self.assertFalse(w.branch_list.get_row_at_index(0).get_activatable())
 
     def test_branch_selection_loads_overview_without_diff(self):
         w = self.window
@@ -74,7 +126,7 @@ class OverviewTests(unittest.TestCase):
         attached = w.chat_context()
         self.assertEqual(attached['file'], 'src/a.ts')
         self.assertEqual(attached['selection'], context['selection'])
-        self.assertEqual(attached['selection_diff_rows'], [1, 3])
+        self.assertEqual(attached['selection_diff_rows'], [1, 2])
         board.clear_selection()
         self.assertEqual(w.chat_context()['selection'], '')
         w.chat_busy(True)

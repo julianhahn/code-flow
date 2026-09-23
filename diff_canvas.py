@@ -32,7 +32,8 @@ def patch_lines(patch):
         match = re.match(r'^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@', line)
         if match:
             old, new = map(int, match.groups())
-            result.append(('hunk', line))
+            # Hunk headers are patch metadata, not code. Keep parsing the
+            # location, but do not show the technical header in the UI.
         elif old is not None and line[:1] in (' ', '+', '-'):
             kind = 'add' if line.startswith('+') else 'del' if line.startswith('-') else 'context'
             left = str(old) if kind != 'add' else ''
@@ -46,9 +47,12 @@ def patch_lines(patch):
 
 
 class DiffCanvas(Gtk.Box):
-    def __init__(self, files, review_scope=None, progress_database=None, head=None, file_commits=None):
+    def __init__(self, files, review_scope=None, progress_database=None, head=None, file_commits=None, open_file=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.files = files
+        self.open_file = open_file
+        self.destroyed = False
+        self.connect('destroy', lambda *_: setattr(self, 'destroyed', True))
         self.selected_context = None
         self.clearing_selection = False
         self.progress = ReviewProgress(review_scope, progress_database, head, file_commits)
@@ -76,6 +80,21 @@ class DiffCanvas(Gtk.Box):
         help_label.set_tooltip_text(help_text)
         bar.pack_start(help_label, True, True, 12)
         self.pack_start(bar, False, False, 0)
+        self.search_hits = []
+        self.search_index = -1
+        self.search_bar = Gtk.Box(spacing=8)
+        self.search_bar.set_no_show_all(True)
+        self.search_entry = Gtk.SearchEntry(placeholder_text='Search changed text…')
+        self.search_entry.connect('search-changed', self.search_changed)
+        self.search_entry.connect('key-press-event', self.search_key)
+        self.search_count = Gtk.Label(label='0 hits')
+        self.search_bar.pack_start(self.search_entry, True, True, 0)
+        self.search_bar.pack_start(self.search_count, False, False, 0)
+        for label, callback in [('Previous', lambda *_: self.search_next(-1)), ('Next', lambda *_: self.search_next(1)), ('Close', self.close_search)]:
+            button = Gtk.Button(label=label)
+            button.connect('clicked', callback)
+            self.search_bar.pack_start(button, False, False, 0)
+        self.pack_start(self.search_bar, False, False, 0)
         self.active_file = None
         self.focused_card = None
         self.cards = {}
@@ -95,10 +114,14 @@ class DiffCanvas(Gtk.Box):
         labels.pack_start(self.path_label, False, False, 0)
         labels.pack_start(self.file_label, False, False, 0)
         location.pack_start(labels, True, True, 0)
-        self.sticky_viewed = Gtk.CheckButton(label='Viewed')
+        self.sticky_viewed = Gtk.CheckButton(label='Viewed (V)')
         self.sticky_viewed.set_sensitive(False)
         self.sticky_handler = self.sticky_viewed.connect('toggled', self.toggle_sticky)
         location.pack_start(self.sticky_viewed, False, False, 0)
+        self.open_file_button = Gtk.Button(label='Open in Zed')
+        self.open_file_button.set_sensitive(False)
+        self.open_file_button.connect('clicked', self.open_focused_file)
+        location.pack_start(self.open_file_button, False, False, 0)
         self.clear_selection_button = Gtk.Button(label='Clear selection')
         self.clear_selection_button.set_sensitive(False)
         self.clear_selection_button.connect('clicked', self.clear_selection)
@@ -114,17 +137,77 @@ class DiffCanvas(Gtk.Box):
             adjustment.connect('changed', self.update_location)
         self.render()
 
+    def open_search(self):
+        self.search_bar.set_no_show_all(False)
+        self.search_bar.show_all()
+        self.search_entry.grab_focus()
+
+    def close_search(self, *_):
+        self.search_entry.set_text('')
+        self.search_bar.hide()
+        self.search_bar.set_no_show_all(True)
+
+    def search_key(self, _, event):
+        if event.keyval == Gdk.KEY_Escape:
+            self.close_search()
+            return True
+        if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self.search_next(-1 if event.state & Gdk.ModifierType.SHIFT_MASK else 1)
+            return True
+        return False
+
+    def search_changed(self, *_):
+        import re
+        query = self.search_entry.get_text()
+        self.search_hits = []
+        if query:
+            for file in self.files:
+                content = '\n'.join(line for _, line in patch_lines(file[3]))
+                self.search_hits.extend((file[2], match.start(), match.end())
+                                        for match in re.finditer(re.escape(query), content, re.IGNORECASE))
+        self.search_index = -1
+        self.render()
+        self.search_count.set_text(f'{len(self.search_hits)} hits')
+        if self.search_hits:
+            self.search_next(1)
+
+    def search_next(self, step):
+        if not self.search_hits:
+            return
+        self.search_index = (self.search_index + step) % len(self.search_hits)
+        path, start, end = self.search_hits[self.search_index]
+        self.search_count.set_text(f'{self.search_index + 1} / {len(self.search_hits)}')
+        self.jump_to_file(path)
+        def reveal():
+            if self.destroyed:
+                return False
+            for widget in self.cards[path].get_children():
+                if isinstance(widget, Gtk.TextView):
+                    buffer = widget.get_buffer()
+                    location = widget.get_iter_location(buffer.get_iter_at_offset(start))
+                    y = next(y for file, x, y, w, h in self.card_positions if file[2] == path)
+                    self.scroll.get_vadjustment().set_value(y + widget.get_allocation().y + location.y)
+                    buffer.remove_tag_by_name('search-current', *buffer.get_bounds())
+                    buffer.apply_tag_by_name('search-current', buffer.get_iter_at_offset(start), buffer.get_iter_at_offset(end))
+            return False
+        GLib.idle_add(reveal)
+
     def update_location(self, *_):
-        if self.rendering:
+        if self.rendering or getattr(self, 'destroyed', False):
             return
         horizontal, vertical = self.scroll.get_hadjustment(), self.scroll.get_vadjustment()
         left, top = horizontal.get_value(), vertical.get_value()
         right, bottom = left + horizontal.get_page_size(), top + vertical.get_page_size()
+        center_x, center_y = (left + right) / 2, (top + bottom) / 2
         visible = []
         for file, x, y, width, height in self.card_positions:
             overlap = min(right, x + width) - max(left, x)
             if overlap > 0 and y < bottom and y + height > top:
-                visible.append((max(0, y-top), -overlap, x, file))
+                # Distance to the card edges, not its midpoint: a huge file
+                # containing the viewport center should still win.
+                dx = max(x - center_x, center_x - (x + width), 0)
+                dy = max(y - center_y, center_y - (y + height), 0)
+                visible.append((dx * dx + dy * dy, -overlap, x, file))
         self.active_file = min(visible, key=lambda item: item[:3])[3] if visible else None
         focused = self.cards.get(self.active_file[2]) if self.active_file else None
         if focused is not self.focused_card:
@@ -147,6 +230,12 @@ class DiffCanvas(Gtk.Box):
             self.sticky_viewed.set_active(False)
         self.sticky_viewed.set_sensitive(self.active_file is not None)
         self.sticky_viewed.handler_unblock(self.sticky_handler)
+        self.open_file_button.set_sensitive(bool(
+            self.open_file and self.active_file and not self.active_file[0].startswith('D')))
+
+    def open_focused_file(self, *_):
+        if self.open_file and self.active_file and not self.active_file[0].startswith('D'):
+            self.open_file(self.active_file[2])
 
     def capture_selection(self, buffer, _location, _mark, file):
         if self.clearing_selection:
@@ -176,6 +265,7 @@ class DiffCanvas(Gtk.Box):
     def toggle_sticky(self, button):
         if self.active_file is None:
             return
+        path = self.active_file[2]
         try:
             self.progress.set_viewed(self.active_file, button.get_active())
         except Exception as error:
@@ -183,6 +273,27 @@ class DiffCanvas(Gtk.Box):
             self.update_location()
             return
         self.render()
+        self.jump_to_file(path)
+
+    def jump_to_file(self, path):
+        def jump():
+            if self.destroyed:
+                return False
+            for file, x, y, width, height in self.card_positions:
+                if file[2] != path:
+                    continue
+                horizontal = self.scroll.get_hadjustment()
+                vertical = self.scroll.get_vadjustment()
+                # Leave enough space below the last card to align its header.
+                board_width, board_height = self.board.get_size()
+                self.board.set_size(board_width, max(board_height, round(y + vertical.get_page_size())))
+                vertical.set_upper(max(vertical.get_upper(), y + vertical.get_page_size()))
+                horizontal.set_value(x)
+                vertical.set_value(y)
+                self.update_location()
+                break
+            return False
+        GLib.idle_add(jump)
 
     def bind_events(self, widget):
         widget.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK |
@@ -319,11 +430,12 @@ class DiffCanvas(Gtk.Box):
                 self.read_count.set_text('Could not save viewed marker: ' + str(error))
                 return
             self.render()
+            self.jump_to_file(path)
         handler = viewed.connect('toggled', toggle)
-        if viewed.get_active():
+        if viewed.get_active() and not any(hit[0] == path for hit in self.search_hits):
             return frame, fg
         text = Gtk.TextView(editable=False, monospace=True, cursor_visible=False)
-        text.set_wrap_mode(Gtk.WrapMode.NONE)
+        text.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         self.style(text, '#f7f9fc', '#253247')
         font = Pango.FontDescription('Monospace')
         font.set_size(round(max(3, 11*self.zoom)*Pango.SCALE))
@@ -337,9 +449,22 @@ class DiffCanvas(Gtk.Box):
         content = '\n'.join(line for _, line in lines)
         for index, (kind, line) in enumerate(lines):
             buffer.insert_with_tags_by_name(buffer.get_end_iter(), line + ('\n' if index < len(lines)-1 else ''), kind, 'font')
+        buffer.create_tag('search-hit', background='#ffe69a', foreground='#202c42')
+        buffer.create_tag('search-current', background='#ffb84d', foreground='#202c42')
+        for hit_path, start, end in self.search_hits:
+            if hit_path == path:
+                buffer.apply_tag_by_name('search-hit', buffer.get_iter_at_offset(start), buffer.get_iter_at_offset(end))
         measure = text.create_pango_layout(content)
         measure.set_font_description(font)
         width, height = measure.get_pixel_size()
+        column_measure = text.create_pango_layout('0' * 300)
+        column_measure.set_font_description(font)
+        max_width = column_measure.get_pixel_size()[0]
+        if width > max_width:
+            measure.set_width(max_width * Pango.SCALE)
+            measure.set_wrap(Pango.WrapMode.WORD_CHAR)
+            _, height = measure.get_pixel_size()
+            width = max_width
         text.set_size_request(max(round(540*self.zoom), width+24), height+16)
         buffer.connect('mark-set', self.capture_selection, file)
         self.bind_events(text)
@@ -392,5 +517,7 @@ class DiffCanvas(Gtk.Box):
         self.board.set_size(round(column_x+400*z), round(bottom+500*z))
         self.info.set_text(f'{round(z*100)}% · Green added / Red deleted / Yellow modified')
         self.update_read_count()
+        if getattr(self, 'on_viewed_changed', None):
+            self.on_viewed_changed()
         self.rendering = False
         self.update_location()
