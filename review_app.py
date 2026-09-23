@@ -1,9 +1,10 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 """Read-only diff canvas. Git operations run outside the GTK event loop."""
 import os
 import json
 import re
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from review_summary import checks_summary, purpose_excerpt
@@ -465,7 +466,7 @@ class ReviewWindow(Gtk.Window):
         return False
 
     def flow(self, *_):
-        subprocess.Popen(['/usr/bin/python3', str(Path(__file__).with_name('code-flow.py'))], env={**os.environ, 'CODE_FLOW_START_VIEW': 'flow'})
+        subprocess.Popen([sys.executable, str(Path(__file__).with_name('code-flow.py'))], env={**os.environ, 'CODE_FLOW_START_VIEW': 'flow'})
 
 
 if __name__ == '__main__':

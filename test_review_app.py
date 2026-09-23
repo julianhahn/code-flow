@@ -19,6 +19,12 @@ class OverviewTests(unittest.TestCase):
     def tearDown(self):
         self.window.hide()
 
+    def test_flow_uses_current_python(self):
+        import sys
+        with patch('review_app.subprocess.Popen') as launch:
+            self.window.flow(None)
+        self.assertEqual(launch.call_args.args[0][0], sys.executable)
+
     def labels(self):
         return [w.get_text() for w in self.window.canvas.get_children()[0].get_children()
                 if isinstance(w, Gtk.Label)]

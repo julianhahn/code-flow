@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 """Read-only prototype. Graph order is source order, not execution proof."""
 import json
 import os
@@ -12,7 +12,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
 
-ROOT = Path(os.environ.get('CODE_FLOW_ROOT', '/home/julian/plancraft'))
+ROOT = Path(os.environ.get('CODE_FLOW_ROOT', str(Path.home() / 'plancraft')))
 meta = json.loads((ROOT / '.tokensave/branch-meta.json').read_text())
 con = sqlite3.connect(f"file:{ROOT / '.tokensave' / meta['branches']['main']['db_file']}?mode=ro", uri=True)
 con.row_factory = sqlite3.Row

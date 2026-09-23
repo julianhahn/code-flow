@@ -25,9 +25,9 @@ class Comparison:
 
 
 class ReviewGit:
-    def __init__(self, root, *, protected_root='/home/julian/plancraft'):
+    def __init__(self, root, *, protected_root=None):
         self.root = Path(root).resolve()
-        protected = Path(protected_root).resolve()
+        protected = Path(protected_root if protected_root is not None else Path.home() / 'plancraft').resolve()
         if self.root == protected or self.root.is_relative_to(protected):
             raise ReviewGitError('The main checkout cannot be used for reviews')
         if not self.root.is_dir():

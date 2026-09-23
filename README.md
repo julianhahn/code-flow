@@ -1,14 +1,35 @@
 # Code Flow
 
-A small Linux GUI for exploring code and opening source locations in Zed.
+A small Linux and macOS GUI for reviewing changes and opening source locations in Zed.
+
+## macOS setup
+
+The review window needs Homebrew Python and GTK 3. Install them, create a separate
+review clone, then install the Finder launcher from this repository:
+
+```sh
+brew install gtk+3 pygobject3
+# Only if ~/plancraft-review does not already exist:
+gh repo clone plancraft/plancraft ~/plancraft-review -- --filter=blob:none
+bash install-macos.sh
+open "$HOME/Applications/Code Flow.app"
+```
+
+The installer creates `~/Applications/Code Flow.app`. Keep this repository in place;
+the launcher runs its `review_app.py`. Remove the app to uninstall the launcher.
+It preserves the install-time command search path so Finder can find `gh` and `pi`.
+Both tools need an existing login. No credentials are stored in the launcher.
+
+Run tests with Homebrew's `python3 -m unittest discover -v`.
+The separate Flow mode still needs a current tokensave index in `~/plancraft`;
+reviewing PRs does not.
 
 ## Remaining setup work
 
 - Linux/Pop!_OS: the dock still does not reliably show the app icon. Match the
   running window identity to the desktop launcher and verify on the real desktop.
-- macOS support is planned but not implemented or tested. Remove machine-specific
-  paths and add platform-specific setup and application launchers.
-- Current launcher and desktop-entry installation is machine-local, not bundled.
+- The Linux launcher and desktop-entry installation remain machine-local.
+- The macOS launcher uses the default application icon.
 - Zoom batches wheel events; it is not continuous Excalidraw-style zoom.
 
 ## Standalone review app
@@ -18,7 +39,7 @@ The installed launcher is `/home/julian/.local/bin/code-flow`; the desktop entry
 is `/home/julian/.local/share/applications/code-flow.desktop`.
 Remove those two files to uninstall the shortcuts; the repositories remain.
 
-The review app uses only `/home/julian/plancraft-review`, a separate clone.
+The review app uses only `~/plancraft-review`, a separate clone.
 Choose a branch and comparison base, or enter a PR number. Refresh fetches branches.
 PR loading fetches its actual base and head. Comparisons use pinned commit SHAs
 and their merge base. Dirty checkouts and active Git operations block switching.

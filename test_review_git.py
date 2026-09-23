@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from review_git import ReviewGit, ReviewGitError
 
@@ -25,6 +26,14 @@ class ReviewGitTests(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
         return subprocess.run(['git', *args], cwd=self.root, env=env, check=True,
                               capture_output=True, text=True, timeout=10).stdout
+
+    def test_default_protection_follows_home(self):
+        with patch('review_git.Path.home', return_value=self.root):
+            with self.assertRaisesRegex(ReviewGitError, 'main checkout'):
+                ReviewGit(self.root / 'plancraft')
+            with self.assertRaisesRegex(ReviewGitError, 'main checkout'):
+                ReviewGit(self.root / 'plancraft' / 'nested')
+            ReviewGit(self.root)
 
     def test_merge_base_pinned_and_ignores_working_tree(self):
         self.git('checkout', '-b', 'feature/slash')
