@@ -5,11 +5,13 @@ import json
 import re
 import subprocess
 import threading
+import json
+import os
 from pathlib import Path
 from review_summary import checks_summary, purpose_excerpt
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, GLib, Gdk
+from gi.repository import Gtk, GLib, Gdk, Pango, Gio
 
 ROOT = Path.home() / 'plancraft-review'
 
@@ -79,6 +81,11 @@ class ReviewWindow(Gtk.Window):
         bar.pack_start(self.selector, True, True, 0)
         self.overview_pr = None
         self.overview_branch = None
+        self.home_button = Gtk.Button(label='⌂')
+        self.home_button.set_tooltip_text('Back to recent reviews')
+        self.home_button.connect('clicked', self.reset_selection)
+        self.home_button.hide()
+        bar.pack_start(self.home_button, False, False, 0)
         for label, callback in [('↻', self.refresh), ('Flow mode', self.flow)]:
             button = Gtk.Button(label=label)
             button.connect('clicked', callback)
@@ -102,6 +109,11 @@ class ReviewWindow(Gtk.Window):
         self.canvas = Gtk.Box(spacing=24)
         scroll = Gtk.ScrolledWindow()
         scroll.add(self.canvas)
+        self.recent_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=24)
+        self.recent_panel.set_halign(Gtk.Align.CENTER)
+        self.recent_panel.set_valign(Gtk.Align.START)
+        self.canvas.pack_start(self.recent_panel, True, True, 0)
+        self.recent_panel.hide()
         self.views = Gtk.Stack()
         self.views.add_named(scroll, 'overview')
         from chat_panel import ChatPanel
@@ -109,11 +121,117 @@ class ReviewWindow(Gtk.Window):
         self.chat = ChatPanel(ROOT, self.chat_context, self.chat_busy)
         split = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         split.pack1(self.views, resize=True, shrink=False)
-        split.pack2(self.chat, resize=False, shrink=False)
+        self.side_panel = Gtk.Notebook()
+        self.side_panel.get_style_context().add_class('review-sidebar')
+        self.side_panel.append_page(self.chat, Gtk.Label(label='Chat'))
+        self.file_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        file_scroll = Gtk.ScrolledWindow()
+        file_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        file_scroll.set_size_request(320, -1)
+        file_scroll.add(self.file_list)
+        self.side_panel.append_page(file_scroll, Gtk.Label(label='Files'))
+        from conversations import Conversations
+        from notes import Notes
+        self.conversations = Conversations()
+        self.notes = Notes()
+        self.side_panel.append_page(self.conversations, Gtk.Label(label='Conversations'))
+        self.side_panel.append_page(self.notes, Gtk.Label(label='Notes'))
+        self.side_panel.connect('switch-page', self.show_conversations)
+        split.pack2(self.side_panel, resize=False, shrink=False)
         split.set_position(950)
         box.pack_start(split, True, True, 0)
         self.connect('destroy', lambda *_: self.chat.client.stop() if self.chat.client else None)
+        self.connect('key-press-event', self.review_key)
+        self.recent_file = Path(os.environ.get('XDG_STATE_HOME') or (Path.home() / '.local/state')) / 'code-flow' / 'recent-selections.json'
+        self.recent_file.parent.mkdir(parents=True, exist_ok=True)
+        self.refresh_recent()
         self.refresh(fetch=False)
+
+    def recent_selections(self):
+        try:
+            return json.loads(self.recent_file.read_text())
+        except (OSError, ValueError):
+            return []
+
+    def remember_selection(self, mode, value, title):
+        items = [item for item in self.recent_selections()
+                 if not (item.get('mode') == mode and item.get('value') == value)]
+        items.insert(0, {'mode': mode, 'value': value, 'title': title})
+        self.recent_file.write_text(json.dumps(items[:8], indent=2))
+        self.refresh_recent()
+
+    def refresh_recent(self):
+        for child in self.recent_panel.get_children():
+            child.destroy()
+        items = self.recent_selections()
+        if not items:
+            self.recent_panel.hide()
+            return
+        self.recent_panel.pack_start(Gtk.Label(label='Recent reviews', xalign=0), False, False, 0)
+        for item in items:
+            button = Gtk.Button(label=f"{item['mode'].title()} · {item['title']}")
+            button.set_halign(Gtk.Align.FILL)
+            button.connect('clicked', self.open_recent, item)
+            self.recent_panel.pack_start(button, False, False, 0)
+        self.recent_panel.show_all()
+
+    def open_recent(self, _, item):
+        self.mode.set_active(1 if item['mode'] == 'pr' else 0)
+        field = self.pr if item['mode'] == 'pr' else self.branch
+        field.set_text(item['value'])
+        self.load_overview()
+
+    def reset_selection(self, *_):
+        self.branch_menu.popdown()
+        self.clear_canvas()
+        self.canvas.pack_start(self.recent_panel, True, True, 0)
+        self.refresh_recent()
+        self.canvas.show_all()
+        self.branch.set_text('')
+        self.pr.set_text('')
+        self.base.set_text('')
+        self.overview_pr = None
+        self.overview_branch = None
+        self.review_head = None
+        self.actions.hide()
+        self.home_button.hide()
+        self.status.set_text('Select a branch or PR to load its overview.')
+        self.chat.configure(None)
+        self.conversations.configure(None)
+        self.notes.configure(None)
+        self.side_panel.set_current_page(0)
+
+    def review_key(self, _, event):
+        if event.keyval in (Gdk.KEY_f, Gdk.KEY_F) and event.state & Gdk.ModifierType.CONTROL_MASK:
+            if self.views.get_visible_child_name() == 'map':
+                self.views.get_child_by_name('map').open_search()
+                return True
+        if event.keyval not in (Gdk.KEY_v, Gdk.KEY_V):
+            return False
+        if event.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK | Gdk.ModifierType.SUPER_MASK):
+            return False
+        focus = self.get_focus()
+        if isinstance(focus, Gtk.Entry) or (isinstance(focus, Gtk.TextView) and focus.get_editable()):
+            return False
+        if self.views.get_visible_child_name() != 'map':
+            return False
+        board = self.views.get_child_by_name('map')
+        if board.active_file is None:
+            return False
+        board.sticky_viewed.set_active(not board.sticky_viewed.get_active())
+        return True
+
+    def show_conversations(self, notebook, page, index):
+        if page is self.conversations:
+            metadata = self.overview_pr
+            number = metadata['number'] if metadata else None
+            if number != self.conversations.number:
+                self.conversations.configure(number)
+        elif page is self.notes:
+            metadata = self.overview_pr
+            number = metadata['number'] if metadata else None
+            if number != self.notes.number:
+                self.notes.configure(number)
 
     def toggle_review_view(self, *_):
         if self.views.get_visible_child_name() == 'map':
@@ -162,6 +280,8 @@ class ReviewWindow(Gtk.Window):
         number = self.pr.get_text().strip() if self.mode.get_active() == 1 else None
         self.branch_menu.popdown()
         self.clear_canvas()
+        self.conversations.configure(None)
+        self.notes.configure(None)
         self.overview_pr = None
         self.overview_branch = None
         self.review_head = None
@@ -183,8 +303,28 @@ class ReviewWindow(Gtk.Window):
             return branch, metadata
         self.work(task, self.show_overview)
 
+    def refresh_file_list(self):
+        for child in self.file_list.get_children():
+            child.destroy()
+        board = self.views.get_child_by_name('map')
+        if not board or self.views.get_visible_child_name() != 'map':
+            self.file_list.pack_start(Gtk.Label(label='Open the diff map to browse files.'), False, False, 8)
+        else:
+            for file in sorted(board.files, key=lambda entry: entry[2]):
+                label = Gtk.Label(label=('✓ ' if board.progress.is_viewed(file) else '○ ') + file[2], xalign=0)
+                label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+                button = Gtk.Button()
+                button.get_style_context().add_class('file-row')
+                button.add(label)
+                button.set_tooltip_text(file[2])
+                button.connect('clicked', lambda _, path=file[2]: board.jump_to_file(path))
+                self.file_list.pack_start(button, False, False, 0)
+        self.file_list.show_all()
+
     def clear_canvas(self):
         self.views.set_visible_child_name('overview')
+        self.refresh_recent()
+        self.refresh_file_list()
         for child in self.canvas.get_children():
             self.canvas.remove(child)
 
@@ -193,7 +333,21 @@ class ReviewWindow(Gtk.Window):
         branch, metadata = result
         self.overview_branch = branch
         self.overview_pr = metadata
+        self.recent_panel.hide()
+        self.home_button.show()
+        self.remember_selection('pr' if metadata else 'branch',
+                               str(metadata['number']) if metadata else branch,
+                               metadata['title'] if metadata else branch)
         self.chat.configure(metadata['number'] if metadata else None)
+        number = metadata['number'] if metadata else None
+        if self.conversations.number != number:
+            self.conversations.configure(None)
+            if self.side_panel.get_current_page() == 2:
+                self.conversations.configure(number)
+        if self.notes.number != number:
+            self.notes.configure(None)
+            if self.side_panel.get_current_page() == 3:
+                self.notes.configure(number)
         self.clear_canvas()
         panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, margin=16)
         panel.set_size_request(700, -1)
@@ -254,8 +408,23 @@ class ReviewWindow(Gtk.Window):
     def filter_branches(self, *_):
         for row in self.branch_list.get_children():
             self.branch_list.remove(row)
-        query = self.branch.get_text().casefold()
-        matches = [name for name in self.branch_options if query in name.casefold()]
+        query = ''.join(self.branch.get_text().casefold().split())
+        ranked = []
+        for order, name in enumerate(self.branch_options):
+            candidate = name.casefold()
+            positions = []
+            cursor = 0
+            for char in query:
+                position = candidate.find(char, cursor)
+                if position < 0:
+                    break
+                positions.append(position)
+                cursor = position + 1
+            else:
+                # Prefer literal matches, then matches with fewer skipped letters.
+                gaps = positions[-1] - positions[0] + 1 - len(query) if positions else 0
+                ranked.append(((query not in candidate, gaps, order), name))
+        matches = [name for _, name in sorted(ranked)]
         for name in matches:
             label = Gtk.Label(label=name, xalign=0, margin=6)
             self.branch_list.add(label)
@@ -376,6 +545,22 @@ class ReviewWindow(Gtk.Window):
             return comparison.merge_base, comparison.head, files, file_commits
         self.work(task, self.show_review)
 
+    def open_file_in_zed(self, path):
+        file = ROOT / path
+        if not file.is_file():
+            self.status.set_text('File is not available in the review checkout: ' + path)
+            return
+        def finished(process, result):
+            try:
+                process.wait_check_finish(result)
+            except GLib.Error as error:
+                self.status.set_text('Could not open Zed: ' + str(error))
+        try:
+            process = Gio.Subprocess.new(['zed', str(ROOT), str(file)], Gio.SubprocessFlags.NONE)
+            process.wait_check_async(None, finished)
+        except GLib.Error as error:
+            self.status.set_text('Could not open Zed: ' + str(error))
+
     def show_review(self, review):
         from diff_canvas import DiffCanvas
         merge, head, files, file_commits = review
@@ -386,10 +571,13 @@ class ReviewWindow(Gtk.Window):
             previous.destroy()
         scope = (f'plancraft/plancraft:pr:{self.overview_pr["number"]}' if self.overview_pr
                  else f'{ROOT}:branch:{self.overview_branch}:base:{self.base.get_text()}')
-        board = DiffCanvas(files, review_scope=scope, head=head, file_commits=file_commits)
+        board = DiffCanvas(files, review_scope=scope, head=head, file_commits=file_commits,
+                           open_file=self.open_file_in_zed)
         self.views.add_named(board, 'map')
         board.show_all()
         self.views.set_visible_child_name('map')
+        board.on_viewed_changed = self.refresh_file_list
+        self.refresh_file_list()
         self.diff_button.set_label('Back to overview')
         self.status.set_text(f'{len(files)} files · {merge[:10]} → {head[:10]} · Diff map')
 

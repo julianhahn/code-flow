@@ -28,6 +28,11 @@ class PiChatTests(unittest.TestCase):
     def test_rpc_stream_and_persistence(self):
         script = '''import sys,json
 request=json.loads(sys.stdin.readline())
+assert request['type'] == 'get_state'
+print(json.dumps({'type':'response','id':'runtime','command':'get_state','success':True,'data':{'model':{'id':'demo','provider':'test'},'thinkingLevel':'high'}}),flush=True)
+request=json.loads(sys.stdin.readline())
+assert request['type'] == 'prompt'
+print(json.dumps({'type':'message_end','message':{'role':'assistant','model':'actual','provider':'test'}}),flush=True)
 print(json.dumps({'type':'response','command':'prompt','success':True}),flush=True)
 print(json.dumps({'type':'message_update','assistantMessageEvent':{'type':'text_delta','delta':'Answer\\u2028with separator'}}),flush=True)
 print(json.dumps({'type':'agent_settled'}),flush=True)
@@ -40,6 +45,8 @@ sys.stdin.read()
                 client.ask({'head':'abc'}, 'Why?', lambda *event: events.append(event))
             self.assertEqual(events[-1][0], 'done')
             self.assertIn('Answer', events[-1][1])
+            self.assertEqual(client.history()[-1]['runtime'], dict(model='actual', provider='test', effort='high', source='used'))
+            self.assertEqual([value['source'] for kind, value in events if kind == 'runtime'], ['target', 'used'])
             self.assertEqual([m['role'] for m in client.history()], ['user','assistant'])
 
     def test_wrong_head_does_not_start_pi(self):

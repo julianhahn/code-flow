@@ -20,5 +20,15 @@
 #code-flow-review label.stat-added { color: #176b36; }
 #code-flow-review label.stat-removed { color: #b42332; }
 #code-flow-review label.stat-files { color: #53617c; }
+#code-flow-review .review-sidebar { background: #f3f5f9; border: 1px solid #dce2ed; }
+#code-flow-review .review-sidebar header { background: #edf1f7; }
+#code-flow-review .review-sidebar tab:checked { background: #ffffff; border-bottom: 3px solid #365bd6; }
+#code-flow-review .review-sidebar textview text { background: #ffffff; color: #202c42; }
+#code-flow-review .chat-user { background: #e7efff; border: 1px solid #c8d8fa; border-radius: 12px; padding: 14px; margin-left: 20px; }
+#code-flow-review .chat-agent { background: #ffffff; border: 1px solid #dce2ed; border-radius: 12px; padding: 14px; margin-right: 8px; }
+#code-flow-review .chat-role { font-weight: bold; color: #365bd6; }
+#code-flow-review .chat-code { background: #edf0f5; border-radius: 6px; padding: 10px; }
+#code-flow-review .code-text { font-family: monospace; font-size: 10pt; }
+#code-flow-review .file-row { padding: 8px 10px; }
 #code-flow-review .purpose { font-size: 14pt; color: #30415b; margin-top: 2px; margin-bottom: 12px; }
 #code-flow-review .section-title { font-size: 10pt; color: #69788e; font-weight: bold; margin-top: 16px; }
