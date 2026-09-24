@@ -84,11 +84,6 @@ class ReviewBuild:
             report(1, f'Read {index + 1}/{total}: {file.path}', (index + 1) / max(1, total))
 
         self.check_cancelled()
-        report(2, f'Resolving imports for {total} changed files…')
-        from reference_links import resolve_changed_imports
-        reference_links = resolve_changed_imports(self.root, [file[2] for file in files])
-        print(f'Resolved direct changed-file imports for {len(reference_links)} source files.')
-        self.check_cancelled()
         report(2, f'Preparing {total} file cards…')
         return dict(merge=comparison.merge_base, head=comparison.head, files=files,
-                    file_commits=file_commits, reference_links=reference_links)
+                    file_commits=file_commits)

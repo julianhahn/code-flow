@@ -648,8 +648,7 @@ class ReviewWindow(Gtk.Window):
         scope = (f'plancraft/plancraft:pr:{self.overview_pr["number"]}' if self.overview_pr
                  else f'{ROOT}:branch:{self.overview_branch}:base:{self.base.get_text()}')
         board = DiffCanvas(files, review_scope=scope, head=head, file_commits=review['file_commits'],
-                           open_file=self.open_file_in_zed, defer_render=True,
-                           reference_links=review.get('reference_links', {}))
+                           open_file=self.open_file_in_zed, defer_render=True)
         self.views.add_named(board, 'map')
         board.show_all()
         def progress(count, total, path):
