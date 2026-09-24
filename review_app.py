@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only diff canvas. Git operations run outside the GTK event loop."""
+"""Review map. Checkout, installation, and analysis run outside the GTK loop."""
 import os
 import json
 import re
@@ -28,6 +28,9 @@ def git(*args):
 class ReviewWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title='Code Flow — Review')
+        self.build = None
+        self.destroyed = False
+        self.connect('destroy', self.stop_review_build)
         self.set_name('code-flow-review')
         self.set_wmclass('code-flow', 'code-flow')
         self.set_icon_from_file(str(Path(__file__).with_name('code-flow.svg')))
@@ -117,6 +120,10 @@ class ReviewWindow(Gtk.Window):
         self.recent_panel.hide()
         self.views = Gtk.Stack()
         self.views.add_named(scroll, 'overview')
+        from ReviewBuildProgress import ReviewBuildProgress
+        self.build_progress = ReviewBuildProgress(self.cancel_review_build,
+            lambda: self.show_overview((self.overview_branch, self.overview_pr)))
+        self.views.add_named(self.build_progress, 'loading')
         from chat_panel import ChatPanel
         self.review_head = None
         self.chat = ChatPanel(ROOT, self.chat_context, self.chat_busy)
@@ -207,6 +214,11 @@ class ReviewWindow(Gtk.Window):
             if self.views.get_visible_child_name() == 'map':
                 self.views.get_child_by_name('map').open_search()
                 return True
+        if event.keyval == Gdk.KEY_Escape and self.views.get_visible_child_name() == 'map':
+            board = self.views.get_child_by_name('map')
+            if board.dependencies.selected is not None:
+                board.dependencies.select(None)
+                return True
         if event.keyval not in (Gdk.KEY_v, Gdk.KEY_V):
             return False
         if event.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK | Gdk.ModifierType.SUPER_MASK):
@@ -241,8 +253,9 @@ class ReviewWindow(Gtk.Window):
             self.open_review()
 
     def chat_busy(self, busy):
-        self.bar.set_sensitive(not busy)
-        self.actions.set_sensitive(not busy)
+        blocked = busy or self.build is not None
+        self.bar.set_sensitive(not blocked)
+        self.actions.set_sensitive(not blocked)
 
     def chat_context(self):
         if not self.overview_pr:
@@ -318,11 +331,14 @@ class ReviewWindow(Gtk.Window):
                 button.get_style_context().add_class('file-row')
                 button.add(label)
                 button.set_tooltip_text(file[2])
-                button.connect('clicked', lambda _, path=file[2]: board.jump_to_file(path))
+                button.connect('clicked', lambda _, path=file[2]: (board.dependencies.select(path), board.jump_to_file(path)))
                 self.file_list.pack_start(button, False, False, 0)
         self.file_list.show_all()
 
     def clear_canvas(self):
+        board = self.views.get_child_by_name('map')
+        if board and hasattr(board, 'dependencies'):
+            board.dependencies.reset()
         self.views.set_visible_child_name('overview')
         self.refresh_recent()
         self.refresh_file_list()
@@ -513,42 +529,91 @@ class ReviewWindow(Gtk.Window):
         self.work(task, done)
 
     def open_review(self, *_):
-        branch = self.overview_branch
-        base = self.base.get_text().strip()
-        metadata_snapshot = self.overview_pr
-        pr = str(metadata_snapshot['number']) if metadata_snapshot else ''
+        if self.build is not None or self.chat.busy:
+            return
+        from ReviewBuild import ReviewBuild
+        build = self.build = ReviewBuild(ROOT, self.overview_branch, self.base.get_text().strip(), self.overview_pr)
+        previous = self.views.get_child_by_name('map')
+        if previous:
+            previous.destroy()
+        self.review_head = None
+        self.chat.set_sensitive(False)
+        self.chat_busy(False)
         self.canvas.set_sensitive(False)
-        self.status.set_text('Loading diff map…')
-        def task():
+        self.build_progress.start()
+        self.build_progress.show_all()
+        self.views.set_visible_child_name('loading')
+        self.status.set_text('Building diff map…')
+
+        def deliver(callback, *args):
+            def invoke():
+                if self.build is build and not self.destroyed:
+                    try:
+                        callback(*args)
+                    except Exception as error:
+                        self.build_failed(build, str(error))
+                return False
+            GLib.idle_add(invoke)
+
+        def progress(stage, detail, fraction=0):
+            def update():
+                if not build.dependency.cancelled.is_set():
+                    self.build_progress.update(stage, detail, fraction)
+            deliver(update)
+
+        def run():
+            try:
+                result = build.run(progress)
+            except Exception as error:
+                deliver(lambda message: self.build_failed(build, message), str(error))
+            else:
+                deliver(self.show_review, result)
+        threading.Thread(target=run, daemon=True).start()
+
+    def cancel_review_build(self):
+        if self.build is None:
+            return
+        self.build_progress.cancelling()
+        self.build.cancel()
+        board = self.views.get_child_by_name('map')
+        if board and board.render_source is not None:
+            board.cancel_render()
+            self.build_failed(self.build, 'Build cancelled.')
+
+    def stop_review_build(self, *_):
+        self.destroyed = True
+        if self.build is not None:
+            self.build.cancel()
+            self.build = None
+
+    def build_failed(self, build, message):
+        if self.build is not build:
+            return
+        self.build = None
+        board = self.views.get_child_by_name('map')
+        if board:
+            board.destroy()
+        self.build_progress.failed(message)
+        self.status.set_text('Diff map not built: ' + message)
+        self.chat.set_sensitive(True)
+        self.chat_busy(self.chat.busy)
+        self.canvas.set_sensitive(True)
+
+    def open_dependency_source(self, head, path, line, column):
+        def check():
             from review_git import ReviewGit
             repository = ReviewGit(ROOT)
             repository.ensure_clean()
-            selected, target_base = branch, base
-            if pr:
-                if not pr.isdigit():
-                    raise ValueError('Enter a numeric PR number.')
-                import json
-                result = subprocess.run(['gh', 'pr', 'view', pr, '--repo', 'plancraft/plancraft', '--json', 'baseRefName,headRefOid'], capture_output=True, text=True, timeout=60)
-                if result.returncode:
-                    raise ValueError(result.stderr.strip())
-                metadata = json.loads(result.stdout)
-                git('fetch', 'origin', 'refs/pull/' + pr + '/head')
-                selected = git('rev-parse', 'FETCH_HEAD')
-                if selected != metadata['headRefOid'] or selected != metadata_snapshot['headRefOid']:
-                    raise ValueError('PR changed. Select it again to reload its overview.')
-                git('fetch', 'origin', metadata['baseRefName'])
-                target_base = git('rev-parse', 'FETCH_HEAD')
-            comparison = repository.compare(target_base, selected)
-            repository.checkout(comparison.head)
-            files = [(f.status, f.old_path or f.path, f.path, repository.file_patch(comparison, f))
-                     for f in comparison.files]
-            file_commits = {f.path: repository.file_commit(comparison, f) for f in comparison.files}
-            return comparison.merge_base, comparison.head, files, file_commits
-        self.work(task, self.show_review)
+            if repository.resolve_ref('HEAD') != head:
+                raise ValueError('Review checkout changed. Reopen the map before opening dependency locations.')
+        def done(_):
+            if self.review_head == head:
+                self.open_file_in_zed(path, line, column)
+        self.work(check, done)
 
-    def open_file_in_zed(self, path):
-        file = ROOT / path
-        if not file.is_file():
+    def open_file_in_zed(self, path, line=None, column=None):
+        file = (ROOT / path).resolve()
+        if not file.is_relative_to(ROOT.resolve()) or not file.is_file():
             self.status.set_text('File is not available in the review checkout: ' + path)
             return
         def finished(process, result):
@@ -557,30 +622,50 @@ class ReviewWindow(Gtk.Window):
             except GLib.Error as error:
                 self.status.set_text('Could not open Zed: ' + str(error))
         try:
-            process = Gio.Subprocess.new(['zed', str(ROOT), str(file)], Gio.SubprocessFlags.NONE)
+            location = str(file) + (f':{max(1, int(line))}:{max(1, int(column or 1))}' if line is not None else '')
+            process = Gio.Subprocess.new(['zed', str(ROOT), location], Gio.SubprocessFlags.NONE)
             process.wait_check_async(None, finished)
         except GLib.Error as error:
             self.status.set_text('Could not open Zed: ' + str(error))
 
     def show_review(self, review):
         from diff_canvas import DiffCanvas
-        merge, head, files, file_commits = review
-        self.review_head = head
-        previous = self.views.get_child_by_name('map')
-        if previous:
-            self.views.remove(previous)
-            previous.destroy()
+        build = self.build
+        build.check_cancelled()
+        merge, head, files = review['merge'], review['head'], review['files']
         scope = (f'plancraft/plancraft:pr:{self.overview_pr["number"]}' if self.overview_pr
                  else f'{ROOT}:branch:{self.overview_branch}:base:{self.base.get_text()}')
-        board = DiffCanvas(files, review_scope=scope, head=head, file_commits=file_commits,
-                           open_file=self.open_file_in_zed)
+        board = DiffCanvas(files, review_scope=scope, head=head, file_commits=review['file_commits'],
+                           open_file=self.open_file_in_zed, defer_render=True,
+                           open_source=lambda path, line, column: self.open_dependency_source(head, path, line, column))
         self.views.add_named(board, 'map')
         board.show_all()
-        self.views.set_visible_child_name('map')
-        board.on_viewed_changed = self.refresh_file_list
-        self.refresh_file_list()
-        self.diff_button.set_label('Back to overview')
-        self.status.set_text(f'{len(files)} files · {merge[:10]} → {head[:10]} · Diff map')
+        def progress(count, total, path):
+            build.check_cancelled()
+            self.build_progress.update(4, f'{count} / {total} file cards · {path}', count / max(1, total))
+        def ready():
+            if self.build is not build or self.destroyed:
+                return
+            build.check_cancelled()
+            if review['links'] is not None:
+                board.dependencies.accept(review['links'])
+            elif review['links_error']:
+                board.dependencies.unavailable(review['links_error'])
+            self.review_head = head
+            self.views.set_visible_child_name('map')
+            board.on_viewed_changed = self.refresh_file_list
+            self.refresh_file_list()
+            self.diff_button.set_label('Back to overview')
+            message = f'{len(files)} files · {merge[:10]} → {head[:10]} · Diff map'
+            if review['links_error']:
+                message += ' · Links unavailable (see map notice)'
+            self.status.set_text(message)
+            self.build_progress.finish()
+            self.build = None
+            self.chat.set_sensitive(True)
+            self.chat_busy(self.chat.busy)
+            self.canvas.set_sensitive(True)
+        board.render_incrementally(progress, ready, lambda message: self.build_failed(build, message))
 
     def legacy_show_review(self, review):
         merge, head, files = review

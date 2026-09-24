@@ -1,5 +1,6 @@
 """Open diff cards on a pannable, zoomable folder canvas."""
 import re
+import time
 from review_progress import ReviewProgress
 from pathlib import PurePosixPath
 import gi
@@ -47,7 +48,10 @@ def patch_lines(patch):
 
 
 class DiffCanvas(Gtk.Box):
-    def __init__(self, files, review_scope=None, progress_database=None, head=None, file_commits=None, open_file=None):
+    dependency_group = staticmethod(group)
+
+    def __init__(self, files, review_scope=None, progress_database=None, head=None, file_commits=None, open_file=None,
+                 open_source=None, defer_render=False):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.files = files
         self.open_file = open_file
@@ -102,9 +106,13 @@ class DiffCanvas(Gtk.Box):
         self.card_style.load_from_data(b'''
             .diff-card { border: 3px solid transparent; }
             .diff-card.focused-card { border-color: #365bd6; }
+            .diff-card.dependency-selected { border-color: #862eb8; }
         ''')
         self.card_positions = []
         self.rendering = False
+        self.render_source = None
+        self.render_iterator = None
+        self.connect('destroy', self.cancel_render)
         location = Gtk.Box(spacing=16, margin=8)
         labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.path_label = Gtk.Label(label='Move to a file to see its path', xalign=0, selectable=True)
@@ -130,12 +138,17 @@ class DiffCanvas(Gtk.Box):
         self.scroll = Gtk.ScrolledWindow()
         self.board = Gtk.Layout()
         self.scroll.add(self.board)
-        self.pack_start(self.scroll, True, True, 0)
+        self.viewport = Gtk.Overlay()
+        self.viewport.add(self.scroll)
+        self.pack_start(self.viewport, True, True, 0)
+        from DependencyOverlay import DependencyOverlay
+        self.dependencies = DependencyOverlay(self, head, open_source)
         self.bind_events(self.board)
         for adjustment in (self.scroll.get_hadjustment(), self.scroll.get_vadjustment()):
             adjustment.connect('value-changed', self.update_location)
             adjustment.connect('changed', self.update_location)
-        self.render()
+        if not defer_render:
+            self.render()
 
     def open_search(self):
         self.search_bar.set_no_show_all(False)
@@ -149,6 +162,7 @@ class DiffCanvas(Gtk.Box):
 
     def search_key(self, _, event):
         if event.keyval == Gdk.KEY_Escape:
+            self.dependencies.select(None)
             self.close_search()
             return True
         if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
@@ -308,6 +322,16 @@ class DiffCanvas(Gtk.Box):
         if event.button == 2:
             self.drag = (event.x_root, event.y_root)
             return True
+        if event.button == 1 and self.dependencies.kinds:
+            path = getattr(widget, 'dependency_path', None)
+            if path:
+                self.dependencies.select(path)
+                return not isinstance(widget, Gtk.TextView)  # Keep text selection for chat.
+            edge = self.dependencies.hit(event)
+            if edge:
+                self.dependencies.show_evidence(edge)
+                return True
+            self.dependencies.select(None)
         return False
 
     def release(self, widget, event):
@@ -389,7 +413,7 @@ class DiffCanvas(Gtk.Box):
         minimum, natural = widget.get_preferred_size()
         return natural.width, natural.height
 
-    def connector(self, parent, x, y, color):
+    def connector(self, parent, x, y, color, column, prefix):
         px, py = parent
         # Two thin widgets draw a folder branch without a giant bitmap.
         for left, top, width, height in ((px, py, 2, max(2, y-py)), (px, y, max(2, x-px), 2)):
@@ -397,6 +421,8 @@ class DiffCanvas(Gtk.Box):
             self.style(line, color, color)
             line.set_size_request(round(width), round(height))
             self.put(line, left, top)
+            self.bind_events(line)
+            self.folder_widgets.append((line, column, prefix))
 
     def card(self, status, old, path, patch):
         key = status[0] if status[0] in COLORS else 'M'
@@ -408,7 +434,10 @@ class DiffCanvas(Gtk.Box):
         header = Gtk.Box(spacing=6)
         title = self.label(f"{status}  {PurePosixPath(path).name}", bg, fg)
         title.set_tooltip_text(path if old == path else f'{old} → {path}')
-        header.pack_start(title, True, True, 0)
+        title_event = Gtk.EventBox()
+        title_event.add(title)
+        title_event.dependency_path = path
+        header.pack_start(title_event, True, True, 0)
         viewed = Gtk.CheckButton(label='Viewed')
         file = (status, old, path, patch)
         viewed.set_active(self.progress.is_viewed(file))
@@ -419,7 +448,7 @@ class DiffCanvas(Gtk.Box):
         header.pack_start(copy, False, False, 0)
         self.style(header, bg, fg)
         frame.pack_start(header, False, False, 0)
-        self.bind_events(title)
+        self.bind_events(title_event)
         def toggle(button):
             try:
                 self.progress.set_viewed(file, button.get_active())
@@ -467,6 +496,7 @@ class DiffCanvas(Gtk.Box):
             width = max_width
         text.set_size_request(max(round(540*self.zoom), width+24), height+16)
         buffer.connect('mark-set', self.capture_selection, file)
+        text.dependency_path = path
         self.bind_events(text)
         frame.pack_start(text, False, False, 0)
         return frame, fg
@@ -475,16 +505,57 @@ class DiffCanvas(Gtk.Box):
         count = sum(self.progress.is_viewed(file) for file in self.files)
         self.read_count.set_text(f'✓ {count} / {len(self.files)} viewed')
 
+    def cancel_render(self, *_):
+        if self.render_source is not None:
+            GLib.source_remove(self.render_source)
+            self.render_source = None
+        if self.render_iterator is not None:
+            self.render_iterator.close()
+            self.render_iterator = None
+        self.rendering = False
+
     def render(self):
+        self.cancel_render()
+        for _ in self._render_steps():
+            pass
+
+    def render_incrementally(self, progress, done, failed):
+        """Yield to GTK between card batches so progress and Cancel stay usable."""
+        self.cancel_render()
+        self.render_iterator = self._render_steps()
+        def tick():
+            try:
+                deadline = time.monotonic() + .02
+                while time.monotonic() < deadline:
+                    count, path = next(self.render_iterator)
+                    progress(count, len(self.files), path)
+            except StopIteration:
+                self.render_source = self.render_iterator = None
+                try:
+                    done()
+                except Exception as error:
+                    failed(str(error))
+                return False
+            except Exception as error:
+                self.render_source = self.render_iterator = None
+                self.rendering = False
+                failed(str(error))
+                return False
+            return True
+        self.render_source = GLib.idle_add(tick)
+
+    def _render_steps(self):
         self.rendering = True
         self.focused_card = None
         self.cards = {}
         self.card_positions = []
+        self.folder_widgets = []
         for child in self.board.get_children():
             self.board.remove(child)
         z = self.zoom
         column_x = 40*z
         bottom = 800*z
+        processed = 0
         for column in COLUMNS:
             entries = sorted((f for f in self.files if group(f[2]) == column), key=lambda f: f[2])
             self.put(self.label(column.upper()), column_x, 25*z)
@@ -500,18 +571,21 @@ class DiffCanvas(Gtk.Box):
                         node = self.label(parts[depth-1])
                         node.set_tooltip_text('/'.join(prefix))
                         if prefix[:-1] in folders:
-                            self.connector(folders[prefix[:-1]], x, y+10*z, '#9daac0')
+                            self.connector(folders[prefix[:-1]], x, y+10*z, '#9daac0', column, '/'.join(prefix))
                         _, h = self.put(node, x, y)
+                        self.folder_widgets.append((node, column, '/'.join(prefix)))
                         folders[prefix] = (x+12*z, y+h)
                         y += h+18*z
                 x = column_x + (len(parts)-1)*28*z
                 card, color = self.card(status, old, path, patch)
                 if parts[:-1] in folders:
-                    self.connector(folders[parts[:-1]], x, y+10*z, color)
+                    self.connector(folders[parts[:-1]], x, y+10*z, color, column, path)
                 w, h = self.put(card, x, y)
                 self.card_positions.append(((status, old, path, patch), x, y, w, h))
                 right = max(right, x+w)
                 y += h+40*z
+                processed += 1
+                yield processed, path
             bottom = max(bottom, y)
             column_x = right+100*z
         self.board.set_size(round(column_x+400*z), round(bottom+500*z))
@@ -521,3 +595,4 @@ class DiffCanvas(Gtk.Box):
             self.on_viewed_changed()
         self.rendering = False
         self.update_location()
+        self.dependencies.update()
