@@ -47,7 +47,10 @@ The main Plancraft checkout is never switched. No tokensave index is needed.
 
 Selecting a branch or PR opens its compact overview. Click **Open diff map**
 to load all patches as open cards, with no per-file scrollbar or expanders.
-Ctrl + wheel or the +/− buttons zoom; middle-drag pans. Shared folder nodes
+Ctrl/Cmd + scroll (mouse or trackpad) or the +/− buttons zoom.
+Two-finger scrolling pans in both directions; middle-drag also pans.
+Pinch zoom is available when the GTK backend delivers pinch gestures.
+Shared folder nodes
 branch into filenames so prefixes are not repeated. Hover for the full path;
 click the copy icon to copy it. Columns remain DBTypes → Frontend → Shared/API
 → Backend → Other. Added files are green, deleted red, modified yellow;
