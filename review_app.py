@@ -214,11 +214,6 @@ class ReviewWindow(Gtk.Window):
             if self.views.get_visible_child_name() == 'map':
                 self.views.get_child_by_name('map').open_search()
                 return True
-        if event.keyval == Gdk.KEY_Escape and self.views.get_visible_child_name() == 'map':
-            board = self.views.get_child_by_name('map')
-            if board.dependencies.selected is not None:
-                board.dependencies.select(None)
-                return True
         if event.keyval not in (Gdk.KEY_v, Gdk.KEY_V):
             return False
         if event.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK | Gdk.ModifierType.SUPER_MASK):
@@ -331,14 +326,12 @@ class ReviewWindow(Gtk.Window):
                 button.get_style_context().add_class('file-row')
                 button.add(label)
                 button.set_tooltip_text(file[2])
-                button.connect('clicked', lambda _, path=file[2]: (board.dependencies.select(path), board.jump_to_file(path)))
+                button.connect('clicked', lambda _, path=file[2]: board.jump_to_file(path))
                 self.file_list.pack_start(button, False, False, 0)
         self.file_list.show_all()
 
     def clear_canvas(self):
         board = self.views.get_child_by_name('map')
-        if board and hasattr(board, 'dependencies'):
-            board.dependencies.reset()
         self.views.set_visible_child_name('overview')
         self.refresh_recent()
         self.refresh_file_list()
@@ -599,18 +592,6 @@ class ReviewWindow(Gtk.Window):
         self.chat_busy(self.chat.busy)
         self.canvas.set_sensitive(True)
 
-    def open_dependency_source(self, head, path, line, column):
-        def check():
-            from review_git import ReviewGit
-            repository = ReviewGit(ROOT)
-            repository.ensure_clean()
-            if repository.resolve_ref('HEAD') != head:
-                raise ValueError('Review checkout changed. Reopen the map before opening dependency locations.')
-        def done(_):
-            if self.review_head == head:
-                self.open_file_in_zed(path, line, column)
-        self.work(check, done)
-
     def open_file_in_zed(self, path, line=None, column=None):
         file = (ROOT / path).resolve()
         if not file.is_relative_to(ROOT.resolve()) or not file.is_file():
@@ -636,8 +617,7 @@ class ReviewWindow(Gtk.Window):
         scope = (f'plancraft/plancraft:pr:{self.overview_pr["number"]}' if self.overview_pr
                  else f'{ROOT}:branch:{self.overview_branch}:base:{self.base.get_text()}')
         board = DiffCanvas(files, review_scope=scope, head=head, file_commits=review['file_commits'],
-                           open_file=self.open_file_in_zed, defer_render=True,
-                           open_source=lambda path, line, column: self.open_dependency_source(head, path, line, column))
+                           open_file=self.open_file_in_zed, defer_render=True)
         self.views.add_named(board, 'map')
         board.show_all()
         def progress(count, total, path):
@@ -647,18 +627,12 @@ class ReviewWindow(Gtk.Window):
             if self.build is not build or self.destroyed:
                 return
             build.check_cancelled()
-            if review['links'] is not None:
-                board.dependencies.accept(review['links'])
-            elif review['links_error']:
-                board.dependencies.unavailable(review['links_error'])
             self.review_head = head
             self.views.set_visible_child_name('map')
             board.on_viewed_changed = self.refresh_file_list
             self.refresh_file_list()
             self.diff_button.set_label('Back to overview')
             message = f'{len(files)} files · {merge[:10]} → {head[:10]} · Diff map'
-            if review['links_error']:
-                message += ' · Links unavailable (see map notice)'
             self.status.set_text(message)
             self.build_progress.finish()
             self.build = None

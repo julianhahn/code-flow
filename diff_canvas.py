@@ -48,10 +48,8 @@ def patch_lines(patch):
 
 
 class DiffCanvas(Gtk.Box):
-    dependency_group = staticmethod(group)
-
     def __init__(self, files, review_scope=None, progress_database=None, head=None, file_commits=None, open_file=None,
-                 open_source=None, defer_render=False):
+                 defer_render=False):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.files = files
         self.open_file = open_file
@@ -136,8 +134,6 @@ class DiffCanvas(Gtk.Box):
         self.viewport = Gtk.Overlay()
         self.viewport.add(self.scroll)
         self.pack_start(self.viewport, True, True, 0)
-        from DependencyOverlay import DependencyOverlay
-        self.dependencies = DependencyOverlay(self, head, open_source)
         self.bind_events(self.board)
         from install_pinch_zoom import install_pinch_zoom
         self.pinch = install_pinch_zoom(self)
@@ -159,7 +155,6 @@ class DiffCanvas(Gtk.Box):
 
     def search_key(self, _, event):
         if event.keyval == Gdk.KEY_Escape:
-            self.dependencies.select(None)
             self.close_search()
             return True
         if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
@@ -319,16 +314,6 @@ class DiffCanvas(Gtk.Box):
         if event.button == 2:
             self.drag = (event.x_root, event.y_root)
             return True
-        if event.button == 1 and self.dependencies.kinds:
-            path = getattr(widget, 'dependency_path', None)
-            if path:
-                self.dependencies.select(path)
-                return not isinstance(widget, Gtk.TextView)  # Keep text selection for chat.
-            edge = self.dependencies.hit(event)
-            if edge:
-                self.dependencies.show_evidence(edge)
-                return True
-            self.dependencies.select(None)
         return False
 
     def release(self, widget, event):
@@ -433,7 +418,6 @@ class DiffCanvas(Gtk.Box):
         title.set_tooltip_text(path if old == path else f'{old} → {path}')
         title_event = Gtk.EventBox()
         title_event.add(title)
-        title_event.dependency_path = path
         header.pack_start(title_event, True, True, 0)
         viewed = Gtk.CheckButton(label='Viewed')
         file = (status, old, path, patch)
@@ -516,7 +500,6 @@ class DiffCanvas(Gtk.Box):
             width = max_width
         text.set_size_request(max(round(540*self.zoom), width+24), height)
         buffer.connect('mark-set', self.capture_selection, file)
-        text.dependency_path = path
         self.bind_events(text)
         frame.pack_start(text, False, False, 0)
         # TextView validates its text layout during its first allocation. GTK
@@ -633,4 +616,3 @@ class DiffCanvas(Gtk.Box):
             self.on_viewed_changed()
         self.rendering = False
         self.update_location()
-        self.dependencies.update()

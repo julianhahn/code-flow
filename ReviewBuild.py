@@ -1,25 +1,25 @@
-"""Build one review: checkout, always install, read patches, then analyse links."""
+"""Build one review: checkout the reviewed snapshot and read its patches."""
 import json
 from pathlib import Path
 
-from DependencyAnalysis import DependencyAnalysis
 from review_git import ReviewGit
 
 
 class ReviewBuild:
-    STEPS = ('Checkout', 'Install dependencies', 'Read changes', 'Find links', 'Draw map')
+    STEPS = ('Checkout', 'Read changes', 'Draw map')
 
     def __init__(self, root, branch, base, metadata=None):
         self.root = Path(root).resolve()
         self.branch, self.base, self.metadata = branch, base, metadata
-        self.dependency = DependencyAnalysis(self.root, '')
+        self.cancelled = False
         self.stage = 0
 
     def cancel(self):
-        self.dependency.cancel()
+        self.cancelled = True
 
     def check_cancelled(self):
-        self.dependency.check_cancelled()
+        if self.cancelled:
+            raise RuntimeError('Review build cancelled.')
 
     def run(self, progress):
         def report(stage, detail, fraction=0):
@@ -52,34 +52,19 @@ class ReviewBuild:
         comparison = repository.compare(base, selected)
         report(0, 'Checking out ' + comparison.head[:10] + '…')
         repository.checkout(comparison.head)
-        self.dependency.head = comparison.head
-
-        # Julian's policy: every new map build installs dependencies, even when
-        # node_modules and an analysis cache already exist. No install UI action.
-        report(1, 'Running pnpm install --frozen-lockfile…')
-        self.dependency.install(lambda message: report(1, message))
 
         files, file_commits = [], {}
         total = len(comparison.files)
-        report(2, f'Reading {total} changed files…')
+        report(1, f'Reading {total} changed files…')
         for index, file in enumerate(comparison.files):
-            report(2, file.path, index / max(1, total))
+            report(1, file.path, index / max(1, total))
             files.append((file.status, file.old_path or file.path, file.path,
                           repository.file_patch(comparison, file)))
             self.check_cancelled()
             file_commits[file.path] = repository.file_commit(comparison, file)
-            report(2, f'{index + 1} / {total} files', (index + 1) / max(1, total))
+            report(1, f'{index + 1} / {total} files', (index + 1) / max(1, total))
 
-        report(3, 'Finding imports and symbol references…')
-        links, links_error = None, None
-        try:
-            links = self.dependency.analyse(lambda message: report(3, message))
-        except Exception as error:
-            self.check_cancelled()  # Cancellation must not turn into a successful build.
-            links_error = str(error)
-        # A link-analysis failure may leave the diff usable. A changed or dirty
-        # checkout must never be presented as the reviewed snapshot.
-        self.dependency.repository()
-        report(4, 'Preparing file cards…')
+        self.check_cancelled()
+        report(2, 'Preparing file cards…')
         return dict(merge=comparison.merge_base, head=comparison.head, files=files,
-                    file_commits=file_commits, links=links, links_error=links_error)
+                    file_commits=file_commits)
