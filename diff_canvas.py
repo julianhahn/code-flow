@@ -49,9 +49,10 @@ def patch_lines(patch):
 
 class DiffCanvas(Gtk.Box):
     def __init__(self, files, review_scope=None, progress_database=None, head=None, file_commits=None, open_file=None,
-                 defer_render=False):
+                 defer_render=False, reference_links=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.files = files
+        self.reference_links = reference_links or {}
         self.open_file = open_file
         self.destroyed = False
         self.connect('destroy', lambda *_: setattr(self, 'destroyed', True))
@@ -82,6 +83,9 @@ class DiffCanvas(Gtk.Box):
         help_label.set_tooltip_text(help_text)
         bar.pack_start(help_label, True, True, 12)
         self.pack_start(bar, False, False, 0)
+        self.reference_mode = Gtk.CheckButton(label='Reference mode')
+        self.reference_mode.connect('toggled', self.update_reference_output)
+        self.pack_start(self.reference_mode, False, False, 8)
         self.search_hits = []
         self.search_index = -1
         self.search_bar = Gtk.Box(spacing=8)
@@ -152,6 +156,40 @@ class DiffCanvas(Gtk.Box):
         self.search_entry.set_text('')
         self.search_bar.hide()
         self.search_bar.set_no_show_all(True)
+
+    def update_reference_output(self, *_):
+        """Show compiler-resolved direct imports to files changed in this review."""
+        if not self.reference_mode.get_active() or not self.active_file:
+            return []
+        selected_path = self.active_file[2]
+        grouped = {}
+        for link in self.reference_links.get(selected_path, ()):
+            key = ('outgoing', link['to'], link['kind'], link.get('symbol', ''))
+            grouped.setdefault(key, set()).add(link['line'])
+        reverse_labels = {
+            'calls': 'called by', 'imports from': 'imported by',
+            'imports type from': 'type used by', 're-exports from': 're-exported by',
+            'reads': 'read by', 'uses type': 'type used by',
+        }
+        for source, links in self.reference_links.items():
+            for link in links:
+                if link['to'] == selected_path:
+                    kind = reverse_labels.get(link['kind'], link['kind'] + ' from')
+                    key = ('incoming', source, kind, link.get('symbol', ''))
+                    grouped.setdefault(key, set()).add(link['line'])
+        lines = [f'Reference links for {selected_path}',
+                 'Resolved from source in this PR checkout. Lines show where each link occurs.', '']
+        if grouped:
+            for (direction, target, kind, symbol), locations in sorted(grouped.items()):
+                name = f' ({symbol})' if symbol else ''
+                line_list = ', '.join(map(str, sorted(locations)))
+                if direction == 'outgoing':
+                    lines.append(f'  {selected_path}:{line_list} -- {kind}{name} --> {target}')
+                else:
+                    lines.append(f'  {selected_path} <-- {kind}{name} -- {target}:{line_list}')
+        else:
+            lines.append('No direct links to or from other changed files.')
+        return lines
 
     def search_key(self, _, event):
         if event.keyval == Gdk.KEY_Escape:
@@ -236,6 +274,8 @@ class DiffCanvas(Gtk.Box):
             self.sticky_viewed.set_active(False)
         self.sticky_viewed.set_sensitive(self.active_file is not None)
         self.sticky_viewed.handler_unblock(self.sticky_handler)
+        if hasattr(self, 'update_reference_output'):
+            self.update_reference_output()
         self.open_file_button.set_sensitive(bool(
             self.open_file and self.active_file and not self.active_file[0].startswith('D')))
 
@@ -453,6 +493,8 @@ class DiffCanvas(Gtk.Box):
         header.set_spacing(max(1, round(6*self.zoom)))
         frame.pack_start(header, False, False, 0)
         self.bind_events(title_event)
+        title_event.connect('button-press-event', lambda *_args, p=path: self.select_reference_file(p))
+        title_event.set_tooltip_text('Click to select this file for reference analysis')
         def toggle(button):
             try:
                 self.progress.set_viewed(file, button.get_active())
@@ -515,6 +557,13 @@ class DiffCanvas(Gtk.Box):
         allocation_handler = frame.connect('size-allocate', allocated)
         return frame, fg
 
+    def select_reference_file(self, path):
+        file = next((item for item in self.files if item[2] == path), None)
+        if file:
+            self.active_file = file
+            self.update_reference_output()
+        return False
+
     def update_read_count(self):
         count = sum(self.progress.is_viewed(file) for file in self.files)
         self.read_count.set_text(f'✓ {count} / {len(self.files)} viewed')
@@ -537,20 +586,25 @@ class DiffCanvas(Gtk.Box):
         """Yield to GTK between card batches so progress and Cancel stay usable."""
         self.cancel_render()
         self.render_iterator = self._render_steps()
+        print(f'Drawing diff map: {len(self.files)} changed files.')
         def tick():
             try:
                 deadline = time.monotonic() + .02
                 while time.monotonic() < deadline:
                     count, path = next(self.render_iterator)
+                    print(f'Drawn {count}/{len(self.files)} file cards: {path}')
                     progress(count, len(self.files), path)
             except StopIteration:
                 self.render_source = self.render_iterator = None
+                print('Diff map drawing complete.')
                 try:
                     done()
                 except Exception as error:
                     failed(str(error))
                 return False
             except Exception as error:
+                import traceback
+                traceback.print_exc()
                 self.render_source = self.render_iterator = None
                 self.rendering = False
                 failed(str(error))
@@ -615,4 +669,5 @@ class DiffCanvas(Gtk.Box):
         if getattr(self, 'on_viewed_changed', None):
             self.on_viewed_changed()
         self.rendering = False
+        print(f'Diff map rendered: {len(self.files)} cards.')
         self.update_location()

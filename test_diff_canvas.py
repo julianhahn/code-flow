@@ -173,6 +173,41 @@ class CanvasTests(unittest.TestCase):
         finally:
             canvas.destroy()
 
+    def test_reference_mode_shows_only_resolved_links_for_selected_file(self):
+        files = [
+            ('M', 'pkgs/demo-shared/src/a.spec.ts', 'pkgs/demo-shared/src/a.spec.ts', ''),
+            ('M', 'pkgs/demo-shared/src/a.ts', 'pkgs/demo-shared/src/a.ts', ''),
+            ('M', 'pkgs/demo-shared/src/b.ts', 'pkgs/demo-shared/src/b.ts', ''),
+        ]
+        links = {
+            'pkgs/demo-shared/src/a.spec.ts': [
+                {'to': 'pkgs/demo-shared/src/a.ts', 'kind': 'calls', 'symbol': 'runA', 'line': 8},
+            ],
+            'pkgs/demo-shared/src/a.ts': [
+                {'to': 'pkgs/demo-shared/src/b.ts', 'kind': 'imports type from', 'symbol': 'B', 'line': 1},
+            ],
+        }
+        canvas = DiffCanvas(files, reference_links=links)
+        try:
+            canvas.reference_mode.set_active(True)
+            canvas.select_reference_file('pkgs/demo-shared/src/a.spec.ts')
+            output = canvas.update_reference_output()
+            self.assertIn('calls (runA)', '\n'.join(output))
+            self.assertIn('a.ts', '\n'.join(output))
+            self.assertNotIn('b.ts', '\n'.join(output))
+            canvas.select_reference_file('pkgs/demo-shared/src/a.ts')
+            output = canvas.update_reference_output()
+            self.assertIn('imports type from (B)', '\n'.join(output))
+            self.assertIn('b.ts', '\n'.join(output))
+            self.assertIn('called by (runA)', '\n'.join(output))
+            self.assertIn('a.spec.ts', '\n'.join(output))
+            self.assertNotIn('shares path component', '\n'.join(output))
+            self.assertFalse(hasattr(canvas, 'reference_output'))
+            canvas.reference_mode.set_active(False)
+            self.assertEqual(canvas.update_reference_output(), [])
+        finally:
+            canvas.destroy()
+
     def test_groups(self):
         self.assertEqual(group('pkgs/document-backend-shared/src/a.ts'), 'Backend')
         self.assertEqual(group('pkgs/document-shared/src/a.ts'), 'Shared/API')

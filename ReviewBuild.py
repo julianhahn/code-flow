@@ -21,10 +21,28 @@ class ReviewBuild:
         if self.cancelled:
             raise RuntimeError('Review build cancelled.')
 
+    def run_gh(self, args, report):
+        """Run gh without an external dependency object; report useful progress."""
+        import os
+        import subprocess
+        report('Checking GitHub…')
+        try:
+            result = subprocess.run(args, cwd=self.root, capture_output=True, text=True,
+                                    timeout=45, check=False,
+                                    env={**{k: v for k, v in os.environ.items()
+                                           if not k.startswith('GIT_')}, 'GIT_TERMINAL_PROMPT': '0',
+                                          'GH_PROMPT_DISABLED': '1'})
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise RuntimeError(str(error)) from error
+        if result.returncode:
+            raise RuntimeError(result.stderr.strip() or f'gh exited with status {result.returncode}')
+        return result.stdout
+
     def run(self, progress):
         def report(stage, detail, fraction=0):
             self.check_cancelled()
             self.stage = stage
+            print(f'Build step {stage + 1}/{len(self.STEPS)}: {detail} ({fraction:.0%})')
             progress(stage, detail, fraction)
 
         report(0, 'Checking the separate review clone…')
@@ -36,7 +54,7 @@ class ReviewBuild:
             if not number.isdigit():
                 raise ValueError('Enter a numeric PR number.')
             report(0, f'Checking PR #{number}…')
-            raw = self.dependency.run(
+            raw = self.run_gh(
                 ['gh', 'pr', 'view', number, '--repo', 'plancraft/plancraft', '--json', 'baseRefName,headRefOid'],
                 lambda message: report(0, message))
             current = json.loads(raw)
@@ -50,6 +68,7 @@ class ReviewBuild:
             base = repository.resolve_ref('FETCH_HEAD')
         report(0, 'Comparing commits…')
         comparison = repository.compare(base, selected)
+        print(f'Comparison: base={comparison.merge_base}, head={comparison.head}, changed_files={len(comparison.files)}')
         report(0, 'Checking out ' + comparison.head[:10] + '…')
         repository.checkout(comparison.head)
 
@@ -57,14 +76,19 @@ class ReviewBuild:
         total = len(comparison.files)
         report(1, f'Reading {total} changed files…')
         for index, file in enumerate(comparison.files):
-            report(1, file.path, index / max(1, total))
+            report(1, f'Reading {index + 1}/{total}: {file.path}', index / max(1, total))
             files.append((file.status, file.old_path or file.path, file.path,
                           repository.file_patch(comparison, file)))
             self.check_cancelled()
             file_commits[file.path] = repository.file_commit(comparison, file)
-            report(1, f'{index + 1} / {total} files', (index + 1) / max(1, total))
+            report(1, f'Read {index + 1}/{total}: {file.path}', (index + 1) / max(1, total))
 
         self.check_cancelled()
-        report(2, 'Preparing file cards…')
+        report(2, f'Resolving imports for {total} changed files…')
+        from reference_links import resolve_changed_imports
+        reference_links = resolve_changed_imports(self.root, [file[2] for file in files])
+        print(f'Resolved direct changed-file imports for {len(reference_links)} source files.')
+        self.check_cancelled()
+        report(2, f'Preparing {total} file cards…')
         return dict(merge=comparison.merge_base, head=comparison.head, files=files,
-                    file_commits=file_commits)
+                    file_commits=file_commits, reference_links=reference_links)

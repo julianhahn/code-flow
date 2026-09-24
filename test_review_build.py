@@ -3,6 +3,11 @@ import unittest
 from unittest.mock import Mock, patch
 
 class RenderingTests(unittest.TestCase):
+    def test_review_build_has_no_dependency_when_loading_branch_diff(self):
+        from ReviewBuild import ReviewBuild
+        build = ReviewBuild('/tmp/review-clone', 'feature/test', 'main')
+        self.assertFalse(hasattr(build, 'dependency'))
+
     def pump_until(self, condition):
         import time
         from gi.repository import GLib
@@ -10,6 +15,17 @@ class RenderingTests(unittest.TestCase):
         while not condition() and time.monotonic() < deadline:
             GLib.MainContext.default().iteration(False)
         self.assertTrue(condition())
+
+    def test_gh_runner_reports_errors_without_dependency_package(self):
+        from ReviewBuild import ReviewBuild
+        build = ReviewBuild('/tmp/review-clone', 'feature/test', 'main')
+        with patch('subprocess.run', return_value=Mock(returncode=0, stdout='{}', stderr='')) as run:
+            messages = []
+            result = build.run_gh(['gh', 'pr', 'view', '1'], messages.append)
+        self.assertEqual(result, '{}')
+        self.assertEqual(messages, ['Checking GitHub…'])
+        self.assertFalse(hasattr(build, 'dependency'))
+        self.assertEqual(run.call_args.kwargs['timeout'], 45)
 
     def test_incremental_cards_keep_order_and_report_each_file(self):
         from diff_canvas import DiffCanvas

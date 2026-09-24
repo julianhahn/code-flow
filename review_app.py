@@ -5,6 +5,9 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
+import time
+import traceback
 import threading
 import json
 import os
@@ -15,6 +18,31 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Gdk, Pango, Gio
 
 ROOT = Path.home() / 'plancraft-review'
+
+
+def start_session_log():
+    """Capture this GUI session's output in a discoverable temp log file."""
+    log_dir = Path(tempfile.gettempdir()) / 'code-flow-logs'
+    log_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = time.strftime('%Y%m%d-%H%M%S')
+    path = log_dir / f'session-{timestamp}-{os.getpid()}-{time.time_ns()}.log'
+    stream = path.open('a', encoding='utf-8', buffering=1)
+    sys.stdout = stream
+    sys.stderr = stream
+    print(f'Code Flow session started: {time.strftime("%Y-%m-%d %H:%M:%S %z")}')
+    print(f'PID: {os.getpid()}')
+    print(f'Platform: {sys.platform}; Python: {sys.version.split()[0]}')
+    print(f'Working directory: {Path.cwd()}')
+    print(f'Log file: {path}')
+    return path
+
+
+def install_exception_logging():
+    previous = sys.excepthook
+    def log_exception(exc_type, exc_value, exc_traceback):
+        traceback.print_exception(exc_type, exc_value, exc_traceback)
+        previous(exc_type, exc_value, exc_traceback)
+    sys.excepthook = log_exception
 
 
 def git(*args):
@@ -153,6 +181,7 @@ class ReviewWindow(Gtk.Window):
         self.recent_file = Path(os.environ.get('XDG_STATE_HOME') or (Path.home() / '.local/state')) / 'code-flow' / 'recent-selections.json'
         self.recent_file.parent.mkdir(parents=True, exist_ok=True)
         self.refresh_recent()
+        print(f'Review clone: {ROOT}')
         self.refresh(fetch=False)
 
     def recent_selections(self):
@@ -505,6 +534,7 @@ class ReviewWindow(Gtk.Window):
     def refresh(self, *_, fetch=True):
         def task():
             from review_git import ReviewGit
+            print(f'Refresh started (fetch={fetch}).')
             repository = ReviewGit(ROOT)
             if fetch:
                 repository.fetch()
@@ -526,6 +556,7 @@ class ReviewWindow(Gtk.Window):
             return
         from ReviewBuild import ReviewBuild
         build = self.build = ReviewBuild(ROOT, self.overview_branch, self.base.get_text().strip(), self.overview_pr)
+        self._build_started_at = time.monotonic()
         previous = self.views.get_child_by_name('map')
         if previous:
             previous.destroy()
@@ -550,11 +581,11 @@ class ReviewWindow(Gtk.Window):
 
         def progress(stage, detail, fraction=0):
             def update():
-                if not build.dependency.cancelled.is_set():
-                    self.build_progress.update(stage, detail, fraction)
+                self.build_progress.update(stage, detail, fraction)
             deliver(update)
 
         def run():
+            print(f'Diff-map build started: branch={self.overview_branch!r}, base={self.base.get_text().strip()!r}, pr={self.overview_pr!r}')
             try:
                 result = build.run(progress)
             except Exception as error:
@@ -617,16 +648,21 @@ class ReviewWindow(Gtk.Window):
         scope = (f'plancraft/plancraft:pr:{self.overview_pr["number"]}' if self.overview_pr
                  else f'{ROOT}:branch:{self.overview_branch}:base:{self.base.get_text()}')
         board = DiffCanvas(files, review_scope=scope, head=head, file_commits=review['file_commits'],
-                           open_file=self.open_file_in_zed, defer_render=True)
+                           open_file=self.open_file_in_zed, defer_render=True,
+                           reference_links=review.get('reference_links', {}))
         self.views.add_named(board, 'map')
         board.show_all()
         def progress(count, total, path):
             build.check_cancelled()
-            self.build_progress.update(4, f'{count} / {total} file cards · {path}', count / max(1, total))
+            def update():
+                if self.build is build and not self.destroyed:
+                    self.build_progress.update(2, f'{count} / {total} file cards · {path}', count / max(1, total))
+            GLib.idle_add(update)
         def ready():
             if self.build is not build or self.destroyed:
                 return
             build.check_cancelled()
+            print(f'Diff map ready in {time.monotonic() - self._build_started_at:.1f}s; {len(files)} changed files.')
             self.review_head = head
             self.views.set_visible_child_name('map')
             board.on_viewed_changed = self.refresh_file_list
@@ -717,6 +753,19 @@ class ReviewWindow(Gtk.Window):
 
 
 if __name__ == '__main__':
-    window = ReviewWindow()
-    window.show_all()
-    Gtk.main()
+    log_path = start_session_log()
+    install_exception_logging()
+    print('Starting GTK review window…')
+    try:
+        window = ReviewWindow()
+        window.show_all()
+        print('Entering GTK main loop.')
+        Gtk.main()
+    except BaseException:
+        traceback.print_exc()
+        raise
+    finally:
+        print(f'Code Flow session ended: {time.strftime("%Y-%m-%d %H:%M:%S %z")}')
+        sys.stdout.flush()
+        sys.stderr.flush()
+        sys.stdout.close()

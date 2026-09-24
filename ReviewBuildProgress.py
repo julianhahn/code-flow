@@ -57,6 +57,7 @@ class ReviewBuildProgress(Gtk.Box):
         self.bar.set_text(f'Step {stage + 1} of {len(self.steps)} · {ReviewBuild.STEPS[stage]}')
         self.detail.set_text(detail)
         self.detail.set_tooltip_text(detail)
+        self.spinner.start()
 
     def cancelling(self):
         self.button.set_sensitive(False)
