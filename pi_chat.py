@@ -33,7 +33,21 @@ def command(session):
     executable = shutil.which('pi')
     if not executable:
         raise RuntimeError('Pi was not found. Open Code Flow from a shell where pi is available.')
-    return [executable, '--mode', 'rpc', '--offline', '--no-approve', '--no-extensions',
+    # Explicit defaults override the model/effort saved in an older chat session.
+    directory = Path(os.environ.get('PI_CODING_AGENT_DIR', str(Path.home() / '.pi/agent'))).expanduser()
+    settings_path = directory / 'settings.json'
+    settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+    defaults = []
+    provider, model = settings.get('defaultProvider'), settings.get('defaultModel')
+    if provider:
+        defaults += ['--provider', provider]
+    if model:
+        defaults += ['--model', model]
+    effort = settings.get('modelThinkingLevels', {}).get(
+        f'{provider}/{model}', settings.get('defaultThinkingLevel'))
+    if effort:
+        defaults += ['--thinking', effort]
+    return [executable, *defaults, '--mode', 'rpc', '--offline', '--no-approve', '--no-extensions',
             '--no-skills', '--no-prompt-templates', '--no-context-files', '--no-themes',
             '--tools', 'read,grep,find,ls', '--session', str(session), '--system-prompt', SYSTEM]
 

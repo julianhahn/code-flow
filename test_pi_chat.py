@@ -15,6 +15,24 @@ class PiChatTests(unittest.TestCase):
         for flag in ('--no-extensions', '--no-skills', '--no-context-files', '--no-approve'):
             self.assertIn(flag, args)
 
+    def test_command_reads_current_defaults_each_time(self):
+        with tempfile.TemporaryDirectory() as root, \
+                patch.dict('os.environ', {'PI_CODING_AGENT_DIR': root}), \
+                patch('pi_chat.shutil.which', return_value='/bin/pi'):
+            settings = Path(root) / 'settings.json'
+            settings.write_text(json.dumps(dict(defaultProvider='test', defaultModel='first',
+                                                defaultThinkingLevel='low')))
+            args = command('/tmp/existing-session.jsonl')
+            self.assertEqual(args[args.index('--provider') + 1], 'test')
+            self.assertEqual(args[args.index('--model') + 1], 'first')
+            self.assertEqual(args[args.index('--thinking') + 1], 'low')
+            settings.write_text(json.dumps(dict(defaultProvider='test', defaultModel='second',
+                                                defaultThinkingLevel='low',
+                                                modelThinkingLevels={'test/second': 'high'})))
+            args = command('/tmp/existing-session.jsonl')
+            self.assertEqual(args[args.index('--model') + 1], 'second')
+            self.assertEqual(args[args.index('--thinking') + 1], 'high')
+
     def test_context_and_scopes(self):
         with tempfile.TemporaryDirectory() as root:
             a = PiChat('pr:1', root, root)

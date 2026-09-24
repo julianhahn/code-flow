@@ -14,7 +14,7 @@ if [[ -e "$APP" ]]; then
 fi
 mkdir -p "$APP/Contents/MacOS"
 "$PYTHON" - "$APP" "$ROOT" "$PYTHON" "$PREFIX" "$PATH" <<'PY'
-import pathlib, plistlib, shlex, sys
+import os, pathlib, plistlib, shlex, sys
 app, root, python, prefix, path = sys.argv[1:]
 contents = pathlib.Path(app) / 'Contents'
 with (contents / 'Info.plist').open('wb') as stream:
@@ -23,7 +23,9 @@ with (contents / 'Info.plist').open('wb') as stream:
                       CFBundlePackageType='APPL', CFBundleExecutable='code-flow',
                       NSHighResolutionCapable=True), stream)
 launcher = contents / 'MacOS/code-flow'
+agent_dir = str(pathlib.Path(os.environ.get('PI_CODING_AGENT_DIR', '~/.pi/agent')).expanduser().resolve())
 launcher.write_text('#!/bin/bash\n'
+                    'export PI_CODING_AGENT_DIR=' + shlex.quote(agent_dir) + '\n'
                     'export PATH=' + shlex.quote(prefix + '/bin:' + path) + '\n'
                     'exec ' + shlex.quote(python) + ' ' + shlex.quote(root + '/review_app.py') + ' "$@"\n')
 launcher.chmod(0o755)
