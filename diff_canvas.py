@@ -103,11 +103,6 @@ class DiffCanvas(Gtk.Box):
         self.focused_card = None
         self.cards = {}
         self.card_style = Gtk.CssProvider()
-        self.card_style.load_from_data(b'''
-            .diff-card { border: 3px solid transparent; }
-            .diff-card.focused-card { border-color: #365bd6; }
-            .diff-card.dependency-selected { border-color: #862eb8; }
-        ''')
         self.card_positions = []
         self.rendering = False
         self.render_source = None
@@ -447,6 +442,29 @@ class DiffCanvas(Gtk.Box):
         copy.connect('clicked', lambda *_: Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(path, -1))
         header.pack_start(copy, False, False, 0)
         self.style(header, bg, fg)
+        # App-wide button sizes are for toolbars, not zoomable cards.
+        controls = Gtk.CssProvider()
+        controls.load_from_data(f'''
+            * {{ font-size: {max(3, 11*self.zoom)}pt; }}
+            button, checkbutton {{
+                min-width: 0; min-height: 0;
+                padding: {max(1, round(3*self.zoom))}px;
+                margin: 0; border: 0; border-radius: 0;
+                background-image: none; background-color: transparent;
+                box-shadow: none; color: {fg};
+            }}
+            button:hover {{ background-color: alpha({fg}, 0.12); }}
+            check {{
+                min-width: {max(4, round(12*self.zoom))}px;
+                min-height: {max(4, round(12*self.zoom))}px;
+                padding: 0; margin: 0;
+            }}
+        '''.encode())
+        for control in (viewed, copy):
+            control.set_valign(Gtk.Align.CENTER)
+            control.get_style_context().add_provider(
+                controls, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION+2)
+        header.set_spacing(max(1, round(6*self.zoom)))
         frame.pack_start(header, False, False, 0)
         self.bind_events(title_event)
         def toggle(button):
@@ -494,11 +512,22 @@ class DiffCanvas(Gtk.Box):
             measure.set_wrap(Pango.WrapMode.WORD_CHAR)
             _, height = measure.get_pixel_size()
             width = max_width
-        text.set_size_request(max(round(540*self.zoom), width+24), height+16)
+        text.set_size_request(max(round(540*self.zoom), width+24), height)
         buffer.connect('mark-set', self.capture_selection, file)
         text.dependency_path = path
         self.bind_events(text)
         frame.pack_start(text, False, False, 0)
+        # TextView validates its text layout during its first allocation. GTK
+        # can allocate the old height even though the preferred height is now
+        # smaller. Request one fresh allocation after that validation.
+        def allocated(widget, allocation):
+            widget.disconnect(allocation_handler)
+            def resize():
+                if widget.get_parent() is self.board:
+                    widget.queue_resize()
+                return False
+            GLib.idle_add(resize)
+        allocation_handler = frame.connect('size-allocate', allocated)
         return frame, fg
 
     def update_read_count(self):
@@ -545,6 +574,11 @@ class DiffCanvas(Gtk.Box):
         self.render_source = GLib.idle_add(tick)
 
     def _render_steps(self):
+        self.card_style.load_from_data(f'''
+            .diff-card {{ border: {max(1, round(3*self.zoom))}px solid transparent; }}
+            .diff-card.focused-card {{ border-color: #365bd6; }}
+            .diff-card.dependency-selected {{ border-color: #862eb8; }}
+        '''.encode())
         self.rendering = True
         self.focused_card = None
         self.cards = {}
