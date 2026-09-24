@@ -77,7 +77,7 @@ class DiffCanvas(Gtk.Box):
         bar.pack_start(self.info, False, False, 0)
         self.read_count = Gtk.Label()
         bar.pack_start(self.read_count, False, False, 8)
-        help_text = 'Middle-drag to pan · Ctrl + wheel to zoom · Hover filename for full path'
+        help_text = 'Middle-drag to pan · Pinch or Ctrl + wheel to zoom · Hover filename for full path'
         help_label = Gtk.Label(label=help_text)
         help_label.set_ellipsize(Pango.EllipsizeMode.END)
         help_label.set_max_width_chars(24)
@@ -139,6 +139,8 @@ class DiffCanvas(Gtk.Box):
         from DependencyOverlay import DependencyOverlay
         self.dependencies = DependencyOverlay(self, head, open_source)
         self.bind_events(self.board)
+        from install_pinch_zoom import install_pinch_zoom
+        self.pinch = install_pinch_zoom(self)
         for adjustment in (self.scroll.get_hadjustment(), self.scroll.get_vadjustment()):
             adjustment.connect('value-changed', self.update_location)
             adjustment.connect('changed', self.update_location)
@@ -592,6 +594,8 @@ class DiffCanvas(Gtk.Box):
         processed = 0
         for column in COLUMNS:
             entries = sorted((f for f in self.files if group(f[2]) == column), key=lambda f: f[2])
+            if not entries:
+                continue
             self.put(self.label(column.upper()), column_x, 25*z)
             y = 85*z
             right = column_x + 600*z
