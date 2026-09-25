@@ -1,6 +1,7 @@
 """Open diff cards on a pannable, zoomable folder canvas."""
 import re
 import time
+import traceback
 from review_progress import ReviewProgress
 from pathlib import PurePosixPath
 import gi
@@ -315,6 +316,7 @@ class DiffCanvas(Gtk.Box):
         try:
             self.progress.set_viewed(self.active_file, button.get_active())
         except Exception as error:
+            traceback.print_exc()
             self.read_count.set_text('Could not save viewed marker: ' + str(error))
             self.update_location()
             return
@@ -499,6 +501,7 @@ class DiffCanvas(Gtk.Box):
             try:
                 self.progress.set_viewed(file, button.get_active())
             except Exception as error:
+                traceback.print_exc()
                 button.handler_block(handler)
                 button.set_active(not button.get_active())
                 button.handler_unblock(handler)
@@ -600,10 +603,10 @@ class DiffCanvas(Gtk.Box):
                 try:
                     done()
                 except Exception as error:
+                    traceback.print_exc()
                     failed(str(error))
                 return False
             except Exception as error:
-                import traceback
                 traceback.print_exc()
                 self.render_source = self.render_iterator = None
                 self.rendering = False

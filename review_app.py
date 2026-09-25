@@ -38,11 +38,38 @@ def start_session_log():
 
 
 def install_exception_logging():
-    previous = sys.excepthook
     def log_exception(exc_type, exc_value, exc_traceback):
-        traceback.print_exception(exc_type, exc_value, exc_traceback)
-        previous(exc_type, exc_value, exc_traceback)
+        if issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+            return
+        traceback.print_exception(exc_type, exc_value, exc_traceback, file=sys.stderr)
+        GLib.idle_add(show_error_dialog, str(exc_value))
     sys.excepthook = log_exception
+    threading.excepthook = lambda args: log_exception(
+        args.exc_type, args.exc_value, args.exc_traceback)
+
+
+def show_error_dialog(message):
+    """Make an unexpected failure visible even when no review window exists yet."""
+    window = next((window for window in Gtk.Window.list_toplevels()
+                   if isinstance(window, ReviewWindow) and window.get_visible()), None)
+    if window is not None:
+        window.status.set_text('Code Flow error: ' + message)
+    dialog = Gtk.MessageDialog(transient_for=window, modal=True,
+                               message_type=Gtk.MessageType.ERROR,
+                               buttons=Gtk.ButtonsType.CLOSE,
+                               text='Code Flow error')
+    dialog.format_secondary_text(message)
+    try:
+        dialog.run()
+    finally:
+        dialog.destroy()
+    return False
+
+
+def log_handled_error(context):
+    """Keep the traceback for errors also reported in the window."""
+    print(f'Code Flow error: {context}', file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
 
 
 def git(*args):
@@ -187,7 +214,11 @@ class ReviewWindow(Gtk.Window):
     def recent_selections(self):
         try:
             return json.loads(self.recent_file.read_text())
-        except (OSError, ValueError):
+        except FileNotFoundError:
+            return []
+        except (OSError, ValueError) as error:
+            log_handled_error('Recent selections could not be read')
+            GLib.idle_add(show_error_dialog, 'Could not read recent selections: ' + str(error))
             return []
 
     def remember_selection(self, mode, value, title):
@@ -509,6 +540,7 @@ class ReviewWindow(Gtk.Window):
             try:
                 value = task()
             except Exception as error:
+                log_handled_error('Background task failed')
                 GLib.idle_add(self.failed, str(error))
             else:
                 GLib.idle_add(self.complete, done, value)
@@ -525,6 +557,7 @@ class ReviewWindow(Gtk.Window):
         try:
             callback(value)
         except Exception as error:
+            log_handled_error('Background task result failed')
             self.status.set_text(str(error))
         self.actions.set_sensitive(True)
         self.bar.set_sensitive(True)
@@ -575,6 +608,7 @@ class ReviewWindow(Gtk.Window):
                     try:
                         callback(*args)
                     except Exception as error:
+                        log_handled_error('Diff-map callback failed')
                         self.build_failed(build, str(error))
                 return False
             GLib.idle_add(invoke)
@@ -589,6 +623,7 @@ class ReviewWindow(Gtk.Window):
             try:
                 result = build.run(progress)
             except Exception as error:
+                log_handled_error('Diff-map build failed')
                 deliver(lambda message: self.build_failed(build, message), str(error))
             else:
                 deliver(self.show_review, result)
@@ -626,18 +661,22 @@ class ReviewWindow(Gtk.Window):
     def open_file_in_zed(self, path, line=None, column=None):
         file = (ROOT / path).resolve()
         if not file.is_relative_to(ROOT.resolve()) or not file.is_file():
-            self.status.set_text('File is not available in the review checkout: ' + path)
+            message = 'File is not available in the review checkout: ' + path
+            print('Code Flow error: ' + message, file=sys.stderr)
+            self.status.set_text(message)
             return
         def finished(process, result):
             try:
                 process.wait_check_finish(result)
             except GLib.Error as error:
+                log_handled_error('Zed launch failed')
                 self.status.set_text('Could not open Zed: ' + str(error))
         try:
             location = str(file) + (f':{max(1, int(line))}:{max(1, int(column or 1))}' if line is not None else '')
             process = Gio.Subprocess.new(['zed', str(ROOT), location], Gio.SubprocessFlags.NONE)
             process.wait_check_async(None, finished)
         except GLib.Error as error:
+            log_handled_error('Zed launch failed')
             self.status.set_text('Could not open Zed: ' + str(error))
 
     def show_review(self, review):
@@ -711,6 +750,7 @@ class ReviewWindow(Gtk.Window):
             try:
                 patch = git('--literal-pathspecs', 'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--unified=5', merge, head, '--', old, new)
             except Exception as error:
+                log_handled_error('File patch failed')
                 GLib.idle_add(label.set_text, str(error))
                 return
             GLib.idle_add(self.patch_ready, expander, label, patch)
@@ -760,9 +800,10 @@ if __name__ == '__main__':
         window.show_all()
         print('Entering GTK main loop.')
         Gtk.main()
-    except BaseException:
+    except Exception as error:
         traceback.print_exc()
-        raise
+        show_error_dialog(str(error))
+        raise SystemExit(1) from error
     finally:
         print(f'Code Flow session ended: {time.strftime("%Y-%m-%d %H:%M:%S %z")}')
         sys.stdout.flush()

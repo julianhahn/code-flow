@@ -5,6 +5,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import threading
+import traceback
 
 import gi
 gi.require_version('Gtk', '3.0')
@@ -114,6 +115,7 @@ class Conversations(Gtk.Box):
             try:
                 items, error = self.loader(number), None
             except Exception as exception:
+                traceback.print_exc()
                 items, error = [], str(exception)
             GLib.idle_add(self.loaded, generation, items, error)
         threading.Thread(target=run, daemon=True).start()
@@ -135,6 +137,7 @@ class Conversations(Gtk.Box):
                 else:
                     self.database.execute('DELETE FROM hidden WHERE pr=? AND id=?', (self.number, item['id']))
         except sqlite3.Error as error:
+            traceback.print_exc()
             self.message.set_text('Could not save hidden state: ' + str(error))
             return
         self.render()

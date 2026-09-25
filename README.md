@@ -24,6 +24,9 @@ Run tests with Homebrew's `python3 -m unittest discover -v`.
 The separate Flow mode still needs a current tokensave index in `~/plancraft`;
 reviewing PRs does not.
 
+Review errors appear in the window and in a per-session log under the system
+temporary directory's `code-flow-logs` folder. Each log starts with its full path.
+
 ## Remaining setup work
 
 - Linux/Pop!_OS: the dock still does not reliably show the app icon. Match the

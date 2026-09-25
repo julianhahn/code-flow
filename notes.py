@@ -2,6 +2,7 @@
 import json
 import os
 import sqlite3
+import traceback
 from pathlib import Path
 
 import gi
@@ -142,6 +143,7 @@ class Notes(Gtk.Box):
                 self.database.execute('INSERT OR REPLACE INTO notes (pr, body, formatting) VALUES (?, ?, ?)',
                                       (self.number, body, json.dumps(spans)))
         except sqlite3.Error as error:
+            traceback.print_exc()
             self.message.set_text('Could not save notes: ' + str(error))
             return False
         self.dirty = False

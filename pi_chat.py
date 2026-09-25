@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import threading
 import time
+import traceback
 
 SYSTEM = '''You are Julian's read-only PR review partner inside Code Flow.
 Use short, plain answers. Explain the selected code and cite file paths and lines.
@@ -156,6 +157,7 @@ class PiChat:
                                 return
                 raise RuntimeError('Stopped.' if self.stopped.is_set() else 'Stopped after 110 seconds. Ask a smaller question or retry.')
         except Exception as error:
+            traceback.print_exc()
             text = (answer + '\n\n' if answer else '') + '[Incomplete] ' + str(error)
             if recorded:
                 self.append('assistant', text, context, runtime)
