@@ -55,7 +55,7 @@ Two-finger scrolling pans in both directions; middle-drag also pans.
 Pinch zoom is available when the GTK backend delivers pinch gestures.
 Shared folder nodes
 branch into filenames so prefixes are not repeated. Hover for the full path;
-click the copy icon to copy it. Columns remain DBTypes → Frontend → Shared/API
+click the copy icon to copy it. Columns remain DBTypes → Frontend → Shared
 → Backend → Other. Added files are green, deleted red, modified yellow;
 renames use yellow and show both paths on hover. Added/deleted lines have
 separate green/red backgrounds. Unchanged lines remain neutral.

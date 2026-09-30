@@ -209,8 +209,19 @@ class CanvasTests(unittest.TestCase):
             canvas.destroy()
 
     def test_groups(self):
+        self.assertEqual(group('pkgs/dbtypes/src/a.ts'), 'DBTypes')
         self.assertEqual(group('pkgs/document-backend-shared/src/a.ts'), 'Backend')
-        self.assertEqual(group('pkgs/document-shared/src/a.ts'), 'Shared/API')
+        self.assertEqual(group('pkgs/document-frontend-shared/src/a.ts'), 'Frontend')
+        self.assertEqual(group('pkgs/document-shared/src/a.ts'), 'Shared')
+        self.assertEqual(group('pkgs/chat/chat-frontend-web/src/a.ts'), 'Frontend')
+        self.assertEqual(group('pkgs/chat/chat-shared/src/a.ts'), 'Shared')
+        self.assertEqual(group('pkgs/chat/chat-backend-shared/src/a.ts'), 'Backend')
+        self.assertEqual(group('pkgs/support-center/support-center-backend-service/src/a.ts'), 'Backend')
+        self.assertEqual(group('pkgs/support-center/support-center-shared/src/a.ts'), 'Shared')
+        self.assertEqual(group('pkgs/support-center/support-center/src/a.ts'), 'Frontend')
+        self.assertEqual(group('apps/public-pages/src/a.ts'), 'Frontend')
+        self.assertEqual(group('apps/firestore-triggers/src/a.ts'), 'Backend')
+        self.assertEqual(group('pkgs/catalog-worker/src/a.ts'), 'Backend')
         self.assertEqual(group('docs/file.md'), 'Other')
 
     def test_hunks_and_colors(self):

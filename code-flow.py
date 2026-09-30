@@ -72,7 +72,7 @@ class Window(Gtk.Window):
 
     def diff_overview(self, *_):
         self.view_mode = 'diff'
-        self.notice.set_text('PR DIFF · left to right: DBTypes → Frontend → Shared/API → Backend. Click a card to read its diff. Set CODE_FLOW_DIFF_BASE to compare another base.')
+        self.notice.set_text('PR DIFF · left to right: DBTypes → Frontend → Shared → Backend. Click a card to read its diff. Set CODE_FLOW_DIFF_BASE to compare another base.')
         self.layout()
 
     def show_diff(self, path, diff):

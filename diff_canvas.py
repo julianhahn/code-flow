@@ -8,22 +8,43 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, Pango, GLib
 
-COLUMNS = ('DBTypes', 'Frontend', 'Shared/API', 'Backend', 'Other')
+COLUMNS = ('DBTypes', 'Frontend', 'Shared', 'Backend', 'Other')
 COLORS = {'A': ('#b9efcc', '#12572e'), 'D': ('#ffc4c4', '#791e28'),
           'M': ('#ffe8a3', '#674700')}
 
+FRONTEND_ENTRYPOINTS = {
+    'app', 'browser', 'mobile', 'public-pages', 'share-page',
+    'storybook', 'support-center', 'website-widgets',
+}
+BACKEND_ENTRYPOINTS = {'api', 'cli', 'firestore-triggers'}
+
+
+def package_names(path):
+    """Return package-name candidates from flat and domain-grouped layouts."""
+    parts = PurePosixPath(path).parts
+    if not parts or parts[0] not in ('apps', 'libs', 'pkgs'):
+        return ()
+    # Packages are either directly below the root or one level below a domain
+    # folder, for example pkgs/chat/chat-frontend-web.
+    return parts[1:3]
+
 
 def group(path):
-    parts = path.split('/')
-    package = parts[1] if len(parts) > 2 and parts[0] == 'pkgs' else ''
-    if package in ('dbtypes', 'db-types'):
+    packages = package_names(path)
+    if any(package in ('dbtypes', 'db-types') for package in packages):
         return 'DBTypes'
-    if '-frontend' in package:
+    if any('-frontend' in package for package in packages):
         return 'Frontend'
-    if '-backend' in package:
+    if any('-backend' in package
+           or package.endswith(('-worker', '-jobs', '-agent', '-importer'))
+           for package in packages):
         return 'Backend'
-    if package.endswith('-shared'):
-        return 'Shared/API'
+    if any(package.endswith('-shared') for package in packages):
+        return 'Shared'
+    if any(package in FRONTEND_ENTRYPOINTS for package in packages):
+        return 'Frontend'
+    if any(package in BACKEND_ENTRYPOINTS for package in packages):
+        return 'Backend'
     return 'Other'
 
 

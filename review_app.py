@@ -716,11 +716,12 @@ class ReviewWindow(Gtk.Window):
         board.render_incrementally(progress, ready, lambda message: self.build_failed(build, message))
 
     def legacy_show_review(self, review):
+        from diff_canvas import COLUMNS, group
         merge, head, files = review
         for child in self.canvas.get_children():
             self.canvas.remove(child)
         columns = {}
-        for name in ('DBTypes', 'Frontend', 'Shared/API', 'Backend', 'Other'):
+        for name in COLUMNS:
             column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
             column.set_size_request(520, -1)
             column.set_valign(Gtk.Align.START)
@@ -728,15 +729,9 @@ class ReviewWindow(Gtk.Window):
             self.canvas.pack_start(column, False, False, 0)
             columns[name] = column
         for status, old, new in files:
-            parts = new.split('/')
-            package = parts[1] if len(parts) > 2 and parts[0] == 'pkgs' else ''
-            group = ('DBTypes' if package in ('dbtypes', 'db-types') else
-                     'Frontend' if '-frontend' in package else
-                     'Backend' if '-backend' in package else
-                     'Shared/API' if package.endswith('-shared') else 'Other')
             expander = Gtk.Expander(label=f'{status}  {new}')
             expander.connect('notify::expanded', self.expand_patch, merge, head, old, new)
-            columns[group].pack_start(expander, False, False, 0)
+            columns[group(new)].pack_start(expander, False, False, 0)
         self.status.set_text(f'{len(files)} files · merge base {merge[:10]} → head {head[:10]} · detached review checkout')
         self.canvas.show_all()
 
