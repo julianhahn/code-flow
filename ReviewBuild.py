@@ -55,17 +55,19 @@ class ReviewBuild:
                 raise ValueError('Enter a numeric PR number.')
             report(0, f'Checking PR #{number}…')
             raw = self.run_gh(
-                ['gh', 'pr', 'view', number, '--repo', 'plancraft/plancraft', '--json', 'baseRefName,headRefOid'],
+                ['gh', 'pr', 'view', number, '--repo', 'plancraft/plancraft', '--json',
+                 'baseRefName,baseRefOid,headRefOid'],
                 lambda message: report(0, message))
             current = json.loads(raw)
             report(0, 'Fetching the reviewed commit…')
             repository._git('fetch', 'origin', 'refs/pull/' + number + '/head')
             selected = repository.resolve_ref('FETCH_HEAD')
-            if selected != current['headRefOid'] or selected != self.metadata['headRefOid']:
+            if (selected != current['headRefOid'] or selected != self.metadata['headRefOid']
+                    or current['baseRefName'] != self.metadata['baseRefName']):
                 raise ValueError('PR changed. Select it again to reload its overview.')
             report(0, 'Fetching the comparison base…')
-            repository._git('fetch', 'origin', current['baseRefName'])
-            base = repository.resolve_ref('FETCH_HEAD')
+            repository._git('fetch', 'origin', current['baseRefOid'])
+            base = repository.resolve_ref(current['baseRefOid'])
         report(0, 'Comparing commits…')
         comparison = repository.compare(base, selected)
         print(f'Comparison: base={comparison.merge_base}, head={comparison.head}, changed_files={len(comparison.files)}')
