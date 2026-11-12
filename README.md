@@ -44,8 +44,10 @@ Remove those two files to uninstall the shortcuts; the repositories remain.
 
 The review app uses only `~/plancraft-review`, a separate clone.
 Choose a branch and comparison base, or enter a PR number. Refresh fetches branches.
-PR loading fetches its actual base and head. Comparisons use pinned commit SHAs
-and their merge base. Dirty checkouts and active Git operations block switching.
+PR loading fetches GitHub's base and head commit SHAs. The diff runs from their
+merge base to the PR head: only that PR's changes, not changes since your local
+checkout. A branch with a PR uses the same rule; the manual comparison base applies
+only to branches without a PR. Dirty checkouts and active Git operations block switching.
 The main Plancraft checkout is never switched. No tokensave index is needed.
 
 Selecting a branch or PR opens its compact overview. Click **Open diff map**

@@ -1,6 +1,63 @@
 """Diff-map rendering regressions."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
+
+
+class PrComparisonTests(unittest.TestCase):
+    def test_pr_shows_only_its_changes_when_local_checkout_is_stale(self):
+        from ReviewBuild import ReviewBuild
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            remote, clone = root / 'remote', root / 'review'
+            remote.mkdir()
+            env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+
+            def git(where, *args):
+                return subprocess.run(['git', *args], cwd=where, env=env, check=True,
+                                      capture_output=True, text=True, timeout=10).stdout.strip()
+
+            git(remote, 'init', '-b', 'main')
+            git(remote, 'config', 'user.email', 'test@example.invalid')
+            git(remote, 'config', 'user.name', 'Test')
+            (remote / 'shared.txt').write_text('base\n')
+            git(remote, 'add', '.')
+            git(remote, 'commit', '-m', 'original base')
+            stale = git(remote, 'rev-parse', 'HEAD')
+            git(root, 'clone', str(remote), str(clone))
+            # The local clone predates unrelated changes already included in the PR.
+            (remote / 'unrelated.txt').write_text('another PR\n')
+            git(remote, 'add', '.')
+            git(remote, 'commit', '-m', 'merge another PR')
+            git(remote, 'checkout', '-b', 'feature')
+            (remote / 'shared.txt').write_text('this PR\n')
+            git(remote, 'commit', '-am', 'reviewed change')
+            head = git(remote, 'rev-parse', 'HEAD')
+            git(remote, 'update-ref', 'refs/pull/12/head', head)
+            git(remote, 'checkout', 'main')
+            # The base can also advance after the PR branches off.
+            (remote / 'base-only.txt').write_text('newer main\n')
+            git(remote, 'add', '.')
+            git(remote, 'commit', '-m', 'advance main')
+            base = git(remote, 'rev-parse', 'HEAD')
+            metadata = dict(number=12, baseRefName='main', headRefOid=head)
+            current = dict(metadata, baseRefOid=base)
+            self.assertEqual(git(clone, 'rev-parse', 'HEAD'), stale)
+            self.assertEqual(git(clone, 'rev-parse', 'origin/main'), stale)
+            build = ReviewBuild(clone, 'main', stale, metadata)
+            with patch.object(build, 'run_gh', return_value=json.dumps(current)):
+                result = build.run(lambda *_: None)
+            self.assertEqual(result['head'], head)
+            self.assertEqual([file[2] for file in result['files']], ['shared.txt'])
+            self.assertIn('-base\n+this PR', result['files'][0][3])
+            self.assertEqual(git(clone, 'rev-parse', 'HEAD'), head)
+            self.assertEqual(git(remote, 'branch', '--show-current'), 'main')
+            self.assertEqual(git(remote, 'status', '--porcelain'), '')
+
 
 class RenderingTests(unittest.TestCase):
     def test_review_build_has_no_dependency_when_loading_branch_diff(self):
