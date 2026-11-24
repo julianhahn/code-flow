@@ -92,13 +92,17 @@ class DiffCanvas(Gtk.Box):
             button = Gtk.Button(label=title)
             button.connect('clicked', lambda _, f=factor: self.set_zoom(1.0 if f is None else self.zoom * f))
             bar.pack_start(button, False, False, 0)
+        fit = Gtk.Button(label='Fit all')
+        fit.set_tooltip_text('Zoom out to see every card, so unchecked files stand out')
+        fit.connect('clicked', lambda *_: self.fit_all())
+        bar.pack_start(fit, False, False, 0)
         self.info = Gtk.Label(label='')
         self.info.set_ellipsize(Pango.EllipsizeMode.END)
         self.info.set_max_width_chars(30)
         bar.pack_start(self.info, False, False, 0)
         self.read_count = Gtk.Label()
         bar.pack_start(self.read_count, False, False, 8)
-        help_text = 'Middle-drag to pan · Pinch or Ctrl + wheel to zoom · Hover filename for full path'
+        help_text = 'Middle-drag to pan · Pinch or Ctrl + wheel to zoom · Double-click a card to center it · Hover filename for full path'
         help_label = Gtk.Label(label=help_text)
         help_label.set_ellipsize(Pango.EllipsizeMode.END)
         help_label.set_max_width_chars(24)
@@ -364,10 +368,53 @@ class DiffCanvas(Gtk.Box):
             return False
         GLib.idle_add(jump)
 
-    def bind_events(self, widget):
+    def fit_all(self):
+        """Zoom out so the whole map fits the window."""
+        self.cancel_zoom()
+        width, height = self.board.get_size()
+        page_w = self.scroll.get_hadjustment().get_page_size()
+        page_h = self.scroll.get_vadjustment().get_page_size()
+        if not (width and height and page_w and page_h):
+            return
+        self.set_zoom(self.zoom * min(page_w / width, page_h / height) * .98)
+        def to_origin():
+            if not self.destroyed:
+                self.scroll.get_hadjustment().set_value(0)
+                self.scroll.get_vadjustment().set_value(0)
+            return False
+        GLib.idle_add(to_origin, priority=GLib.PRIORITY_LOW)
+
+    def center_on_file(self, path, minimum_zoom=1.0):
+        """Zoom in (never out) to minimum_zoom and center the file's card."""
+        if self.zoom < minimum_zoom:
+            self.set_zoom(minimum_zoom)
+        def center():
+            if self.destroyed:
+                return False
+            for file, x, y, width, height in self.card_positions:
+                if file[2] != path:
+                    continue
+                for adjustment, start, size in ((self.scroll.get_hadjustment(), x, width),
+                                                (self.scroll.get_vadjustment(), y, height)):
+                    page = adjustment.get_page_size()
+                    # A card taller than the window starts at its header.
+                    adjustment.set_value(max(0, start - 20 if size > page else start + size/2 - page/2))
+                self.update_location()
+                break
+            return False
+        GLib.idle_add(center, priority=GLib.PRIORITY_LOW)
+
+    def bind_events(self, widget, path=None):
         widget.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK |
                           Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.SCROLL_MASK |
                           Gdk.EventMask.SMOOTH_SCROLL_MASK)
+        if path is not None:
+            def double_click(_, event):
+                if event.type == Gdk.EventType.DOUBLE_BUTTON_PRESS and event.button == 1:
+                    self.center_on_file(path)
+                    return True
+                return False
+            widget.connect('button-press-event', double_click)
         widget.connect('button-press-event', self.press)
         widget.connect('button-release-event', self.release)
         widget.connect('motion-notify-event', self.motion)
@@ -515,7 +562,7 @@ class DiffCanvas(Gtk.Box):
                 controls, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION+2)
         header.set_spacing(max(1, round(6*self.zoom)))
         frame.pack_start(header, False, False, 0)
-        self.bind_events(title_event)
+        self.bind_events(title_event, path)
         title_event.connect('button-press-event', lambda *_args, p=path: self.select_reference_file(p))
         title_event.set_tooltip_text('Click to select this file for reference analysis')
         def toggle(button):
@@ -566,7 +613,7 @@ class DiffCanvas(Gtk.Box):
             width = max_width
         text.set_size_request(max(round(540*self.zoom), width+24), height)
         buffer.connect('mark-set', self.capture_selection, file)
-        self.bind_events(text)
+        self.bind_events(text, path)
         frame.pack_start(text, False, False, 0)
         # TextView validates its text layout during its first allocation. GTK
         # can allocate the old height even though the preferred height is now

@@ -53,6 +53,9 @@ to load all patches as open cards, with no per-file scrollbar or expanders.
 Ctrl/Cmd + scroll (mouse or trackpad) or the +/− buttons zoom.
 Two-finger scrolling pans in both directions; middle-drag also pans.
 Pinch zoom is available when the GTK backend delivers pinch gestures.
+**Fit all** zooms out to show every card, so files not yet marked Viewed stand
+out. Double-click a card's title or diff to zoom back in (to 100% if zoomed
+out) and center it.
 Shared folder nodes
 branch into filenames so prefixes are not repeated. Hover for the full path;
 click the copy icon to copy it. Columns remain DBTypes → Frontend → Shared
