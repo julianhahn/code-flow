@@ -56,6 +56,9 @@ Pinch zoom is available when the GTK backend delivers pinch gestures.
 **Fit all** zooms out to show every card, so files not yet marked Viewed stand
 out. Double-click a card's title or diff to zoom back in (to 100% if zoomed
 out) and center it.
+**Hide specs** toggles all spec/test files (`*.spec.*`, `*.test.*`, `*_spec.*`,
+`*_test.*`, `test_*`, and files under `spec`, `specs`, `__tests__` or
+`__snapshots__` folders) off the map to cut noise on big PRs.
 Shared folder nodes
 branch into filenames so prefixes are not repeated. Hover for the full path;
 click the copy icon to copy it. Columns remain DBTypes → Frontend → Shared

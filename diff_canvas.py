@@ -48,6 +48,17 @@ def group(path):
     return 'Other'
 
 
+SPEC_DIRECTORIES = {'spec', 'specs', '__tests__', '__snapshots__'}
+
+
+def is_spec(path):
+    """True for test/spec files: *.spec.*, *.test.*, *_spec.*, *_test.*, test_*.py, or spec folders."""
+    parts = PurePosixPath(path).parts
+    name = parts[-1].lower() if parts else ''
+    return (bool(re.search(r'[._-](spec|test)\.', name)) or name.startswith('test_')
+            or any(part.lower() in SPEC_DIRECTORIES for part in parts[:-1]))
+
+
 def patch_lines(patch):
     old = new = None
     result = []
@@ -96,6 +107,11 @@ class DiffCanvas(Gtk.Box):
         fit.set_tooltip_text('Zoom out to see every card, so unchecked files stand out')
         fit.connect('clicked', lambda *_: self.fit_all())
         bar.pack_start(fit, False, False, 0)
+        self.hide_specs = False
+        self.spec_toggle = Gtk.ToggleButton(label='Hide specs')
+        self.spec_toggle.set_tooltip_text('Hide spec/test files (*.spec.*, *.test.*, test_*.py, spec folders) to reduce noise')
+        self.spec_toggle.connect('toggled', self.toggle_specs)
+        bar.pack_start(self.spec_toggle, False, False, 0)
         self.info = Gtk.Label(label='')
         self.info.set_ellipsize(Pango.EllipsizeMode.END)
         self.info.set_max_width_chars(30)
@@ -231,7 +247,7 @@ class DiffCanvas(Gtk.Box):
         query = self.search_entry.get_text()
         self.search_hits = []
         if query:
-            for file in self.files:
+            for file in self.visible_files():
                 content = '\n'.join(line for _, line in patch_lines(file[3]))
                 self.search_hits.extend((file[2], match.start(), match.end())
                                         for match in re.finditer(re.escape(query), content, re.IGNORECASE))
@@ -367,6 +383,13 @@ class DiffCanvas(Gtk.Box):
                 break
             return False
         GLib.idle_add(jump)
+
+    def visible_files(self):
+        return [f for f in self.files if not (self.hide_specs and is_spec(f[2]))]
+
+    def toggle_specs(self, button):
+        self.hide_specs = button.get_active()
+        self.search_changed() if self.search_entry.get_text() else self.render()
 
     def fit_all(self):
         """Zoom out so the whole map fits the window."""
@@ -636,8 +659,11 @@ class DiffCanvas(Gtk.Box):
         return False
 
     def update_read_count(self):
-        count = sum(self.progress.is_viewed(file) for file in self.files)
-        self.read_count.set_text(f'✓ {count} / {len(self.files)} viewed')
+        shown = self.visible_files()
+        count = sum(self.progress.is_viewed(file) for file in shown)
+        self.read_count.set_text(f'✓ {count} / {len(shown)} viewed')
+        hidden = len(self.files) - len(shown)
+        self.spec_toggle.set_label(f'Specs hidden ({hidden})' if self.hide_specs else 'Hide specs')
 
     def cancel_render(self, *_):
         if self.render_source is not None:
@@ -657,14 +683,14 @@ class DiffCanvas(Gtk.Box):
         """Yield to GTK between card batches so progress and Cancel stay usable."""
         self.cancel_render()
         self.render_iterator = self._render_steps()
-        print(f'Drawing diff map: {len(self.files)} changed files.')
+        print(f'Drawing diff map: {len(self.visible_files())} changed files.')
         def tick():
             try:
                 deadline = time.monotonic() + .02
                 while time.monotonic() < deadline:
                     count, path = next(self.render_iterator)
-                    print(f'Drawn {count}/{len(self.files)} file cards: {path}')
-                    progress(count, len(self.files), path)
+                    print(f'Drawn {count}/{len(self.visible_files())} file cards: {path}')
+                    progress(count, len(self.visible_files()), path)
             except StopIteration:
                 self.render_source = self.render_iterator = None
                 print('Diff map drawing complete.')
@@ -701,7 +727,7 @@ class DiffCanvas(Gtk.Box):
         bottom = 800*z
         processed = 0
         for column in COLUMNS:
-            entries = sorted((f for f in self.files if group(f[2]) == column), key=lambda f: f[2])
+            entries = sorted((f for f in self.visible_files() if group(f[2]) == column), key=lambda f: f[2])
             if not entries:
                 continue
             self.put(self.label(column.upper()), column_x, 25*z)
@@ -740,5 +766,5 @@ class DiffCanvas(Gtk.Box):
         if getattr(self, 'on_viewed_changed', None):
             self.on_viewed_changed()
         self.rendering = False
-        print(f'Diff map rendered: {len(self.files)} cards.')
+        print(f'Diff map rendered: {len(self.visible_files())} cards.')
         self.update_location()

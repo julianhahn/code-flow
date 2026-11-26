@@ -2,7 +2,7 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
-from diff_canvas import DiffCanvas, Gdk
+from diff_canvas import DiffCanvas, Gdk, is_spec
 
 
 class NavigationTests(unittest.TestCase):
@@ -51,6 +51,26 @@ class NavigationTests(unittest.TestCase):
             vertical = canvas.scroll.get_vadjustment()
             expected = card[2] + card[4] / 2 - vertical.get_page_size() / 2
             self.assertAlmostEqual(vertical.get_value(), max(0, expected), delta=2)
+        finally:
+            canvas.destroy()
+
+    def test_is_spec_matches_common_test_files(self):
+        for path in ('a/b.spec.ts', 'a/b.test.tsx', 'a/b_spec.rb', 'a/b_test.go', 'a/test_b.py',
+                     'a/__tests__/b.ts', 'spec/b.rb', 'a/__snapshots__/b.snap'):
+            self.assertTrue(is_spec(path), path)
+        for path in ('a/b.ts', 'a/specification.ts', 'a/latest.py', 'a/contest/b.py'):
+            self.assertFalse(is_spec(path), path)
+
+    def test_hide_specs_toggle_removes_spec_cards(self):
+        files = [('M', p, p, '@@ -1 +1 @@\n-old\n+new') for p in ('src/a.ts', 'src/a.spec.ts')]
+        canvas = DiffCanvas(files)
+        try:
+            self.assertEqual(set(canvas.cards), {'src/a.ts', 'src/a.spec.ts'})
+            canvas.spec_toggle.set_active(True)
+            self.assertEqual(set(canvas.cards), {'src/a.ts'})
+            self.assertIn('/ 1 viewed', canvas.read_count.get_text())
+            canvas.spec_toggle.set_active(False)
+            self.assertEqual(set(canvas.cards), {'src/a.ts', 'src/a.spec.ts'})
         finally:
             canvas.destroy()
 
