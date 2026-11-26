@@ -15,6 +15,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(HERE.parent))
 from fixture import prepare
+from trajectory import verify_motion
 from pr_28118 import FIRST_PATHS, LANES, prepare_pr_28118
 
 BASELINE = "0d6518bb2a6ea4fd715c84f253a8c6529f987b81"
@@ -34,7 +35,8 @@ def compile_module(destination):
     flags = subprocess.check_output(["pkg-config", "--cflags", "--libs", "gtk+-3.0"],
                                     text=True).split()
     link = ["-dynamiclib"] if sys.platform == "darwin" else ["-fPIC", "-shared"]
-    subprocess.run(["cc", *link, "-o", str(destination), str(HERE / "driver.c"), *flags],
+    subprocess.run(["cc", "-O2", *link, "-o", str(destination), str(HERE / "driver.c"),
+                    str(HERE / "motion.c"), *flags],
                    check=True)
 
 
@@ -63,7 +65,7 @@ def extend_review(home, env):
     metadata.write_text(json.dumps(data))
 
 
-def run(binary, home, module, output, stress=False, navigation=False):
+def run(binary, home, module, output, stress=False, navigation=False, motion=False):
     home.mkdir()
     env = prepare_pr_28118(home) if navigation else prepare(home)
     (home / "state/code-flow/help-seen").touch()
@@ -77,6 +79,13 @@ def run(binary, home, module, output, stress=False, navigation=False):
     env.update(GTK_MODULES=str(module), NATIVE_CAPTURES=str(output),
                NATIVE_STRESS="1" if stress else "", GTK_OVERLAY_SCROLLING="0",
                CODE_FLOW_REVIEW_ROOT=str(home / "plancraft-review"), CODE_FLOW_REPO="plancraft/plancraft")
+    if motion:
+        for stale_frame in output.glob("*.missing.png"):
+            stale_frame.unlink()
+        for filename in ("motion.csv", "motion.txt", "motion-failed.png"):
+            (output / filename).unlink(missing_ok=True)
+        env["NATIVE_MOTION"] = "1"
+        env["NATIVE_NEXT_BACKEND"] = LANES["Backend"][1]
     if navigation:
         env["NATIVE_NAVIGATION"] = "\n".join(FIRST_PATHS)
         env["NATIVE_NEXT_UNVIEWED"] = LANES["Frontend"][2]
@@ -126,6 +135,7 @@ def compare(old_file, new_file, difference):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stress", action="store_true", help="also profile a 160-file two-second drag")
+    parser.add_argument("--motion-only", action="store_true", help="profile animated keyboard pans and zoom only")
     args = parser.parse_args()
     output = ROOT / "target" / "visual" / "native" / sys.platform
     subprocess.run(["cargo", "build", "--locked", "--bin", "code-flow"], cwd=ROOT, check=True)
@@ -134,9 +144,13 @@ def main():
     candidate = [str(Path(metadata["target_directory"]) / "debug/code-flow")]
     with tempfile.TemporaryDirectory() as temp:
         work = Path(temp)
-        archive_legacy(work / "legacy")
         module = work / "native-capture.so"
         compile_module(module)
+        run(candidate, work / "home-motion", module, output / "motion", navigation=True, motion=True)
+        verify_motion(output / "motion")
+        if args.motion_only:
+            return
+        archive_legacy(work / "legacy")
         for name, binary in [("legacy", [sys.executable, str(work / "legacy/review_app.py")]),
                              ("rust", candidate)]:
             run(binary, work / ("home-" + name), module, output / name)

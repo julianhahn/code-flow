@@ -1,6 +1,6 @@
 /* GTK's test module API lets both unmodified executables run exactly the same
  * events and read their own real window. No system-wide input permission. */
-#include <gtk/gtk.h>
+#include "driver.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,18 +12,18 @@ static gdouble initial_x, initial_y;
 static const gdouble positions[][2] = {
     {750, 650}, {721, 629}, {692, 603}, {668, 585}, {640, 562}};
 
-static void report(const gchar *filename, const gchar *contents) {
+void report(const gchar *filename, const gchar *contents) {
   gchar *path = g_build_filename(destination, filename, NULL);
   g_file_set_contents(path, contents, -1, NULL);
   g_free(path);
 }
 
-static void fail(const gchar *reason) {
+void fail(const gchar *reason) {
   report("error", reason);
   exit(EXIT_FAILURE);
 }
 
-static void finish(void) {
+void finish(void) {
   report("complete", "OK");
   gtk_main_quit();
 }
@@ -41,7 +41,7 @@ static GtkWidget *review_window(void) {
   return result;
 }
 
-static GtkWidget *find(GtkWidget *root, GType type, const gchar *button_text,
+GtkWidget *find(GtkWidget *root, GType type, const gchar *button_text,
                        const gchar *style) {
   if (!gtk_widget_get_mapped(root))
     return NULL;
@@ -63,11 +63,11 @@ static GtkWidget *find(GtkWidget *root, GType type, const gchar *button_text,
   return result;
 }
 
-static GtkWidget *button(GtkWidget *window, const gchar *text) {
+GtkWidget *button(GtkWidget *window, const gchar *text) {
   return find(window, GTK_TYPE_BUTTON, text, NULL);
 }
 
-static void screenshot(GtkWidget *window, const gchar *label) {
+void screenshot(GtkWidget *window, const gchar *label) {
   GdkPixbuf *image =
       gdk_pixbuf_get_from_window(gtk_widget_get_window(window), 0, 0,
                                  gtk_widget_get_allocated_width(window),
@@ -185,15 +185,20 @@ static void start_profile(GtkWidget *window, GtkWidget *layout) {
   g_timeout_add(4, sample_pan, profile);
 }
 
-static void press_key(GtkWidget *window, guint keyval) {
+void key_event(GtkWidget *window, guint keyval, GdkModifierType state) {
   GdkEvent *event = gdk_event_new(GDK_KEY_PRESS);
   event->key.window = g_object_ref(gtk_widget_get_window(window));
   event->key.send_event = TRUE;
   event->key.keyval = keyval;
+  event->key.state = state;
   GdkSeat *seat = gdk_display_get_default_seat(gdk_display_get_default());
   gdk_event_set_device(event, gdk_seat_get_keyboard(seat));
   gtk_widget_event(window, event);
   gdk_event_free(event);
+}
+
+void press_key(GtkWidget *window, guint keyval) {
+  key_event(window, keyval, 0);
 }
 
 /* PR 28118 has short Viewed headers in three lanes next to a tall fourth
@@ -291,6 +296,10 @@ static gboolean advance(gpointer unused) {
   default: {
     if (!layout)
       fail("The visible map disappeared.");
+    if (g_getenv("NATIVE_MOTION")) {
+      start_motion(window, layout);
+      return G_SOURCE_REMOVE;
+    }
     if (g_getenv("NATIVE_NAVIGATION")) {
       test_navigation(window, layout);
       break;
