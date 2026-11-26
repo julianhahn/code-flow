@@ -238,7 +238,7 @@ impl Canvas {
             // Apply the destination before GTK paints the new sizes. Its final
             // allocation can change scrollbar gutters, so reconcile afterwards.
             let place = move |c: &Rc<Self>| match focus {
-                Focus::Card(i) => c.center(i),
+                Focus::Card(i) => c.center_view(i),
                 _ => c.pan_to((x, y)),
             };
             place(self);
@@ -487,7 +487,7 @@ impl Canvas {
                 None
             };
             if let Focus::Card(i) = focus {
-                c.center(i);
+                c.center_view(i);
             } else {
                 c.pan_to(point.unwrap_or((target.x, target.y)));
             }

@@ -146,7 +146,19 @@ impl Canvas {
         } else if double {
             self.after_zoom(move |c| c.center_on_file(&c.files[file].path, 1.0));
         } else {
-            self.after_zoom(move |c| c.select_file(file));
+            // A click can select against the current board as soon as it hits.
+            // Preserve input order if a preceding key still needs the new layout.
+            if !self.zoom_animation.settling.get()
+                && self.zoom_animation.actions.borrow().is_empty()
+            {
+                self.select_file(file);
+                if let Some(motion) = self.zoom_animation.motion.borrow_mut().as_mut() {
+                    motion.picture.take();
+                    self.preview.queue_draw();
+                }
+            } else {
+                self.after_zoom(move |c| c.select_file(file));
+            }
         }
     }
 

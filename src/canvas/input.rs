@@ -177,7 +177,7 @@ impl Canvas {
             }
         });
     }
-    pub(super) fn center(&self, index: usize) {
+    pub(super) fn center_view(&self, index: usize) {
         let rect = self
             .cards
             .borrow()
@@ -198,10 +198,15 @@ impl Canvas {
                 value(self.scroll.hadjustment(), r.x, r.w),
                 value(self.scroll.vadjustment(), r.y, r.h),
             ));
-            self.active.set(Some(index));
-            self.update_location();
         }
     }
+
+    pub(super) fn center(&self, index: usize) {
+        self.center_view(index);
+        self.active.set(Some(index));
+        self.update_location();
+    }
+
     pub fn center_on_file(self: &Rc<Self>, path: &str, minimum_zoom: f64) {
         let Some(&index) = self.paths.get(path) else {
             return;
