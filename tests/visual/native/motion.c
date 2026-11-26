@@ -143,6 +143,13 @@ static void setup_zoom(Motion *m) {
   g_object_set(gtk_settings_get_default(), "gtk-enable-animations", TRUE, NULL);
 }
 
+static void position_card(Motion *m, GtkWidget *card, gdouble fraction) {
+  GtkAllocation allocation;
+  gtk_widget_get_allocation(card, &allocation);
+  gtk_adjustment_set_value(m->horizontal, allocation.x -
+      fraction * gtk_adjustment_get_page_size(m->horizontal));
+}
+
 static gboolean sample_motion(gpointer data) {
   Motion *m = data;
   gint64 now = g_get_monotonic_time();
@@ -188,15 +195,23 @@ static gboolean sample_motion(gpointer data) {
     // GTK widget, including after the preview owns the window for a while.
     gint card_x, card_y;
     gtk_widget_translate_coordinates(card, m->scroll, 0, 0, &card_x, &card_y);
-    if (ABS(left - (card_x - 1)) > 3 || ABS(width - gtk_widget_get_allocated_width(card)) > 3) {
+    // The screenshot starts one point inside the scroller. Its rightmost
+    // drawable column is the smaller of the capture edge and the scrollbar.
+    gdouble visible_end = MIN(gtk_widget_get_allocated_width(m->scroll) - 3.,
+                              gtk_adjustment_get_page_size(m->horizontal) - 1.);
+    gdouble expected_left = CLAMP(card_x - 1., 0., visible_end);
+    gdouble expected_right = CLAMP(card_x - 1. + gtk_widget_get_allocated_width(card), 0., visible_end);
+    gdouble expected_width = expected_right - expected_left;
+    if (left < 0 || ABS(left - expected_left) > 3 || ABS(width - expected_width) > 3) {
       if (elapsed < 5000) {
         g_free(path);
         g_strfreev(paths);
         return G_SOURCE_CONTINUE;
       }
-      fail(g_strdup_printf("%s: painted card %.1f/%.1f differs from GTK card %d/%d",
-                           phases[m->phase].name, left, width, card_x - 1,
-                           gtk_widget_get_allocated_width(card)));
+      report("motion.csv", m->trace->str);
+      screenshot(m->window, "motion-failed");
+      fail(g_strdup_printf("%s: painted card %.1f/%.1f differs from visible GTK bounds %.1f/%.1f",
+                           phases[m->phase].name, left, width, expected_left, expected_width));
     }
     g_free(path);
     g_strfreev(paths);
@@ -214,6 +229,8 @@ static gboolean sample_motion(gpointer data) {
     m->input = 0;
     if (m->phase == PAN_REDUCED || m->phase == REDUCED_ZOOM)
       g_object_set(gtk_settings_get_default(), "gtk-enable-animations", FALSE, NULL);
+    if (m->phase == PAN_REDUCED)
+      position_card(m, card, .5);  // Shift+Left clips the card's right end.
     if (m->phase == BUTTON_ZOOM)
       setup_zoom(m);
     if (m->phase == ZOOM_AND_SELECT)
@@ -243,9 +260,7 @@ void start_motion(GtkWidget *window, GtkWidget *layout) {
   GtkWidget *card = find(layout, GTK_TYPE_WIDGET, NULL, "focused-card");
   if (!card)
     fail("Cannot position the first Backend file for native pan profiling.");
-  GtkAllocation a;
-  gtk_widget_get_allocation(card, &a);
-  gtk_adjustment_set_value(m->horizontal, a.x - .55 * gtk_adjustment_get_page_size(m->horizontal));
+  position_card(m, card, .55);
   m->since = g_get_monotonic_time() + 200000;
   m->trace = g_string_new("phase,ms,inputs,left,width,camera,page\n");
   g_timeout_add(7, next_sample, m);
