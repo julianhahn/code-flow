@@ -67,24 +67,37 @@ class Map:
         self.zoom_label = bar.get_child_at_index(5)
         self.count_label = bar.get_child_at_index(6)
         self.sticky = location.get_child_at_index(1)
-        self.board = find(window, "label", "FRONTEND").get_parent()
         self.load_cards()
         assert set(self.cards) == {p for lane in LANES.values() for p in lane}, "Fixture and rendered files differ"
 
     def load_cards(self):
-        # The board exposes a single label carrying the full path in each file header.
-        self.cards = {}
-        self.titles = {}
-        for card in children(self.board):
-            if card.get_role_name() != "filler":
-                continue
-            header = card.get_child_at_index(0)
-            title = header.get_child_at_index(0).get_child_at_index(0)
-            path = title.get_description()
-            self.cards[path] = card
-            self.titles[path] = title
-        count = re.search(r"/ (\d+) viewed", self.count_label.get_name())
-        assert count and len(self.cards) == int(count[1]), "Incomplete rendered file list"
+        def collect():
+            # GTK replaces the layout after animated zoom. AT-SPI can return
+            # an old object until its removal event reaches this client.
+            try:
+                lane = find(self.window, "label", "FRONTEND")
+                if not lane:
+                    return False
+                board = lane.get_parent()
+                cards, titles = {}, {}
+                for card in children(board):
+                    if not card or card.get_role_name() != "filler":
+                        continue
+                    header = card.get_child_at_index(0)
+                    title_box = header and header.get_child_at_index(0)
+                    title = title_box and title_box.get_child_at_index(0)
+                    if not title:
+                        return False
+                    path = title.get_description()
+                    cards[path], titles[path] = card, title
+                count = re.search(r"/ (\d+) viewed", self.count_label.get_name())
+                if not count or len(cards) != int(count[1]):
+                    return False
+                self.board, self.cards, self.titles = board, cards, titles
+                return True
+            except GLib.Error:
+                return False
+        until("Incomplete rendered file list", collect, timeout=8)
 
     def selected(self):
         return self.breadcrumb.get_description(), self.filename.get_name()
@@ -229,7 +242,7 @@ def rapid_viewed_pan(m, current, next_file):
     assert actual == reference, f"rapid V then Shift+Left: viewport {actual}, settled equivalent {reference}"
 
 
-def navigate(_):
+def open_navigation_map():
     Atspi.init()
     win = window_id()
     xdo("windowfocus", win)
@@ -243,7 +256,12 @@ def navigate(_):
     click(*midpoint(button))
     until("review clone did not finish loading",
           lambda: box(button)[2] > 0 and button.get_name() == "Back to overview", timeout=180)
-    m = Map(window)
+    return Map(window)
+
+
+def navigate(_):
+    m = open_navigation_map()
+    window = m.window
     # At full zoom the old geometric navigation skipped directly from the first
     # Frontend card to Other, bypassing both intervening populated columns.
     front, shared, back, other = (LANES[lane] for lane in ("Frontend", "Shared", "Backend", "Other"))

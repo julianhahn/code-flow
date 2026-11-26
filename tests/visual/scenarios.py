@@ -325,7 +325,9 @@ def main():
         screenshots.finish()
     if MODE == "compare":
         from navigation import run_navigation
-        run_navigation(["/build/debug/code-flow"])
+        from motion import run_motion
+        run_navigation(review)
+        run_motion(review)
 
 
 if __name__ == "__main__":
