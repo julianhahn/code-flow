@@ -308,13 +308,23 @@ impl Canvas {
             self.update_location();
             return;
         }
-        if value {
-            self.viewed.borrow_mut().insert(i);
+        let next = if value {
+            let mut viewed = self.viewed.borrow_mut();
+            viewed.insert(i);
+            self.navigation.borrow().next_unviewed(i, &viewed)
         } else {
             self.viewed.borrow_mut().remove(&i);
-        }
+            None
+        };
         self.render();
-        self.jump_to_file(&self.files[i].path);
+        if let Some(next) = next {
+            // Select synchronously so a repeated V acts on the next file even
+            // before GTK finishes allocating the newly collapsed card.
+            self.select_file(next);
+            self.after_layout(move |c| c.center(next));
+        } else {
+            self.jump_to_file(&self.files[i].path);
+        }
         if let Some(callback) = &*self.changed.borrow() {
             callback();
         }

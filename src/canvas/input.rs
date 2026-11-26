@@ -187,7 +187,7 @@ impl Canvas {
         self.generation.set(self.generation.get().wrapping_add(1));
     }
 
-    fn select_file(&self, index: usize) {
+    pub(super) fn select_file(&self, index: usize) {
         self.invalidate_camera_restore();
         self.navigation.borrow_mut().reset_anchor();
         self.active.set(Some(index));
@@ -219,7 +219,7 @@ impl Canvas {
             }
         });
     }
-    fn center(&self, index: usize) {
+    pub(super) fn center(&self, index: usize) {
         let rect = self
             .cards
             .borrow()

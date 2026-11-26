@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::sync::LazyLock;
+use std::{collections::HashSet, sync::LazyLock};
 
 pub const COLUMNS: [&str; 5] = ["DBTypes", "Frontend", "Shared", "Backend", "Other"];
 
@@ -192,6 +192,18 @@ impl Navigation {
         self.anchor = None;
     }
 
+    /// Only cards in the current filtered layout are eligible, even when the
+    /// persisted marker set also contains files hidden by Hide specs.
+    pub fn next_unviewed(&self, file: usize, viewed: &HashSet<usize>) -> Option<usize> {
+        let index = self.slots.iter().position(|slot| slot.file == file)?;
+        let column = self.slots[index].column;
+        self.slots[index + 1..]
+            .iter()
+            .take_while(|slot| slot.column == column)
+            .find(|slot| !viewed.contains(&slot.file))
+            .map(|slot| slot.file)
+    }
+
     pub fn step(&mut self, file: usize, direction: &str) -> Option<usize> {
         let index = self.slots.iter().position(|slot| slot.file == file)?;
         let current = self.slots[index];
@@ -308,6 +320,24 @@ mod tests {
                 bottom,
             })
             .collect()
+    }
+
+    #[test]
+    fn marking_viewed_only_advances_to_visible_unread_cards_below_in_this_column() {
+        let mut nav = Navigation::default();
+        let mut slots = map(&[
+            (0, 0, 10),
+            (0, 20, 30),
+            (0, 40, 50),
+            (0, 60, 70),
+            (2, 0, 10),
+        ]);
+        slots.remove(1); // A test file hidden from the current map.
+        nav.set_layout(slots);
+        assert_eq!(nav.next_unviewed(0, &HashSet::from([0, 2])), Some(3));
+        assert_eq!(nav.next_unviewed(0, &HashSet::from([0, 2, 3])), None);
+        assert_eq!(nav.next_unviewed(3, &HashSet::from([3])), None);
+        assert_eq!(nav.next_unviewed(1, &HashSet::new()), None);
     }
 
     #[test]
