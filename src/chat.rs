@@ -4,7 +4,7 @@ mod conversations;
 mod notes;
 
 use crate::backend::{self, pi, pr_scope, str_field, Result};
-use crate::widgets::{button, clear, entry, hbox, label, scroll, vbox};
+use crate::widgets::{button, clear, display_text, entry, hbox, label, scroll, vbox};
 use gtk::prelude::*;
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
@@ -144,7 +144,7 @@ fn runtime_text(info: &Value) -> String {
 }
 
 fn copy_text(text: &str) {
-    gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD).set_text(text);
+    gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD).set_text(&display_text(text));
 }
 
 fn render_message(body: &gtk::Box, text: &str) {

@@ -120,7 +120,7 @@ impl Scene {
             color(rgb);
             cr.set_font_size(size);
             cr.move_to(x, y);
-            cr.show_text(&value.replace('\0', "�"))?;
+            cr.show_text(&display_text(value))?;
             Ok(())
         };
         let ink = (0.82, 0.85, 0.91);
@@ -480,13 +480,14 @@ impl Viewer {
         };
         match read {
             Ok((flow, positions, warnings)) => {
-                self.notice.set_text(&format!("{} · automatic layout · {}",flow.title,if warnings.is_empty(){
+                self.notice.set_text(&display_text(&format!("{} · automatic layout · {}",flow.title,if warnings.is_empty(){
                     "Source evidence unchanged; flow meaning is agent-reviewed, not parser-proven.".into()
-                }else{warnings.join("; ")}));
+                }else{warnings.join("; ")})));
                 self.scene.replace(Scene::flow(flow, positions));
             }
             Err(e) => {
-                self.notice.set_text(&format!("Cannot display flow: {e}"));
+                self.notice
+                    .set_text(&display_text(&format!("Cannot display flow: {e}")));
                 self.scene.replace(Scene {
                     size: (1100, 500),
                     ..Default::default()
@@ -638,11 +639,13 @@ impl Viewer {
         let text = gtk::TextView::new();
         text.set_editable(false);
         text.set_monospace(true);
-        text.buffer().unwrap().set_text(if patch.is_empty() {
-            "No diff for this file."
-        } else {
-            patch
-        });
+        text.buffer()
+            .unwrap()
+            .set_text(&display_text(if patch.is_empty() {
+                "No diff for this file."
+            } else {
+                patch
+            }));
         dialog
             .content_area()
             .pack_start(&scroll(&text), true, true, 0);

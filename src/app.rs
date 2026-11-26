@@ -290,7 +290,7 @@ impl App {
 
     fn error(&self, error: String) {
         eprintln!("Code Flow error: {error}");
-        self.status.set_text(&error);
+        self.status.set_text(&display_text(&error));
     }
 
     fn show_help(self: &Rc<Self>) {

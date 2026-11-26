@@ -1,4 +1,15 @@
 use gtk::prelude::*;
+use std::borrow::Cow;
+
+/// GTK strings cannot represent embedded NUL. Use one replacement character
+/// per NUL so text selection, formatting, and search keep their character offsets.
+pub fn display_text(text: &str) -> Cow<'_, str> {
+    if text.as_bytes().contains(&0) {
+        Cow::Owned(text.replace('\0', "�"))
+    } else {
+        Cow::Borrowed(text)
+    }
+}
 
 pub fn vbox(spacing: i32) -> gtk::Box {
     gtk::Box::new(gtk::Orientation::Vertical, spacing)
@@ -7,7 +18,7 @@ pub fn hbox(spacing: i32) -> gtk::Box {
     gtk::Box::new(gtk::Orientation::Horizontal, spacing)
 }
 pub fn label(text: &str, classes: &[&str]) -> gtk::Label {
-    let label = gtk::Label::new(Some(text));
+    let label = gtk::Label::new(Some(&display_text(text)));
     label.set_xalign(0.);
     for class in classes {
         crate::theme::style(&label, class);
@@ -15,7 +26,7 @@ pub fn label(text: &str, classes: &[&str]) -> gtk::Label {
     label
 }
 pub fn button(text: &str) -> gtk::Button {
-    gtk::Button::with_label(text)
+    gtk::Button::with_label(&display_text(text))
 }
 pub fn entry(placeholder: &str) -> gtk::Entry {
     let entry = gtk::Entry::new();
@@ -115,8 +126,9 @@ impl Progress {
             stage + 1,
             STAGES[stage]
         )));
-        self.detail.set_text(detail);
-        self.detail.set_tooltip_text(Some(detail));
+        let detail = display_text(detail);
+        self.detail.set_text(&detail);
+        self.detail.set_tooltip_text(Some(&detail));
     }
     pub fn cancelling(&self) {
         self.button.set_sensitive(false);
@@ -129,8 +141,9 @@ impl Progress {
         self.title
             .set_text(&format!("Build stopped · {}", STAGES[i]));
         self.steps[i].set_text(&format!("× {}. {}", i + 1, STAGES[i]));
-        self.detail.set_text(message);
-        self.detail.set_tooltip_text(Some(message));
+        let message = display_text(message);
+        self.detail.set_text(&message);
+        self.detail.set_tooltip_text(Some(&message));
         self.button.set_label("Back to overview");
         self.button.set_sensitive(true);
     }

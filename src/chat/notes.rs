@@ -1,6 +1,6 @@
 //! Local rich-text notes, using the original table and GTK character offsets.
 use crate::backend::{database, Result};
-use crate::widgets::{button, hbox, label, scroll, vbox};
+use crate::widgets::{button, display_text, hbox, label, scroll, vbox};
 use gtk::prelude::*;
 use rusqlite::{params, OptionalExtension};
 use std::cell::{Cell, RefCell};
@@ -260,7 +260,7 @@ impl Notes {
             (String::new(), Vec::new())
         };
         self.loading.set(true);
-        self.buffer.set_text(&body);
+        self.buffer.set_text(&display_text(&body));
         for (name, start, end) in spans {
             if start >= 0
                 && end > start

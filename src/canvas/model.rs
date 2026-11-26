@@ -85,7 +85,8 @@ pub fn patch_text(raw: &str) -> PatchText {
     let mut content = String::new();
     let mut ranges = Vec::new();
     let mut offset = 0i32;
-    for line in raw.lines() {
+    let display = crate::widgets::display_text(raw);
+    for line in display.lines() {
         if let Some(captures) = HUNK.captures(line) {
             numbers = captures[1]
                 .parse::<u64>()
@@ -214,6 +215,29 @@ mod tests {
         }
         assert!(!is_spec("a/specification.rs"));
     }
+    #[test]
+    fn nul_in_a_text_diff_keeps_search_and_tag_offsets_without_changing_the_raw_patch() {
+        let file = FilePatch {
+            status: "M".into(),
+            old_path: "text.dat".into(),
+            path: "text.dat".into(),
+            patch: "@@ -1 +1 @@\n-old\0猫\n+new\0😀\n".into(),
+            file_commit: None,
+        };
+        let displayed = patch_text(&file.patch);
+        assert!(file.patch.contains('\0'));
+        assert!(!displayed.content.contains('\0'));
+        assert!(displayed.content.ends_with("+new�😀"));
+        let chars: Vec<_> = displayed.content.chars().collect();
+        let (kind, start, end) = displayed.ranges[1];
+        assert_eq!(kind, "add");
+        assert_eq!(end as usize, chars.len());
+        assert!(chars[start as usize..end as usize]
+            .iter()
+            .collect::<String>()
+            .ends_with("+new�😀"));
+    }
+
     #[test]
     fn numbered_unicode_patch_and_metadata() {
         let patch = patch_text(
