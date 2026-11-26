@@ -15,6 +15,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(HERE.parent))
 from fixture import prepare
+from pr_28118 import FIRST_PATHS, LANES, prepare_pr_28118
 
 BASELINE = "0d6518bb2a6ea4fd715c84f253a8c6529f987b81"
 STATES = ["dashboard", "overview", "map", "pan", "fit", "hide-specs", "viewed"]
@@ -62,18 +63,23 @@ def extend_review(home, env):
     metadata.write_text(json.dumps(data))
 
 
-def run(binary, home, module, output, stress=False):
+def run(binary, home, module, output, stress=False, navigation=False):
     home.mkdir()
-    env = prepare(home)
+    env = prepare_pr_28118(home) if navigation else prepare(home)
     (home / "state/code-flow/help-seen").touch()
     if stress:
         extend_review(home, env)
     output.mkdir(parents=True, exist_ok=True)
     done = output / "complete"
     done.unlink(missing_ok=True)
+    (output / "error").unlink(missing_ok=True)
+    (output / "unexpected-selection.png").unlink(missing_ok=True)
     env.update(GTK_MODULES=str(module), NATIVE_CAPTURES=str(output),
                NATIVE_STRESS="1" if stress else "", GTK_OVERLAY_SCROLLING="0",
                CODE_FLOW_REVIEW_ROOT=str(home / "plancraft-review"), CODE_FLOW_REPO="plancraft/plancraft")
+    if navigation:
+        env["NATIVE_NAVIGATION"] = "\n".join(FIRST_PATHS)
+        env["NATIVE_NEXT_UNVIEWED"] = LANES["Frontend"][2]
     if sys.platform == "darwin":
         env["GDK_BACKEND"] = "quartz"
     process = subprocess.run(binary, env=env, timeout=90)
@@ -144,6 +150,8 @@ def main():
                 failures.append(state)
         if failures:
             raise SystemExit(f"Native visual differences in {', '.join(failures)}. See {output}")
+        run(candidate, work / "home-navigation", module, output / "navigation", navigation=True)
+        print("PR #28118 arrow navigation and Viewed selection passed.")
         if args.stress:
             run(candidate, work / "home-stress", module, output / "stress", stress=True)
             print((output / "stress/pan.txt").read_text())

@@ -35,7 +35,7 @@ On Linux, run `./install-linux.sh` and choose **Code Flow** in the application m
 - Type part of a branch name, select a recent review, or enter a PR number. **↻** fetches branches. Branches without a PR have an editable comparison base.
 - Pan with two-finger scrolling or the middle mouse button. A drag updates the horizontal and vertical scroll offsets together on the GTK frame clock. Card layout and text buffers stay in place during panning.
 - Use Ctrl/Cmd + scroll, pinch, or the zoom controls. **Fit all** shows the board at a reduced scale. Double-click a file to center it and return to at least 100%.
-- Click a card or use the arrow keys to select a file. Shift + arrow moves the viewport while preserving selection. **V** toggles Viewed. Markers survive unrelated commits and expire when the file changes.
+- Left and Right move one populated column at a time and keep your place vertically. Up and Down step through files in the current column. The same arrows select the same files after zooming or panning. Shift + arrow pans while keeping the selected file. **V** or the **Viewed** checkbox marks the file and selects the next unviewed file below it in that column. Selection stays on the file when you unmark it or reach the last unviewed file. Markers survive unrelated commits and expire when the file changes.
 - **Hide specs** filters test cards from the map and its search and progress counts. Ctrl/Cmd + F searches displayed diffs. Select patch text to attach that exact selection to a chat.
 - The **Files** tab jumps to files. **Conversations** reads GitHub comments, reviews and thread replies. Hide and Unhide affect the local view. **Notes** saves formatted text per PR across commits.
 - Ctrl/Cmd + B toggles the sidebar. Press **?** for shortcuts. Code Flow remembers sidebar visibility and recently opened reviews.
@@ -72,7 +72,7 @@ The visual suite drives the shipping executable against a real temporary Git clo
 
 ## Decisions carried forward from earlier iterations
 
-- Selection follows an explicit click or arrow key. Directional navigation uses the edges of cards so wide or off-center cards remain reachable. The sidebar preference and first-run shortcut help survive restarts. [PR 3](https://github.com/julianhahn/code-flow/pull/3) and [PR 4](https://github.com/julianhahn/code-flow/pull/4)
+- Selection follows an explicit click or arrow key. Horizontal navigation considers card height in the neighboring column so wide or off-screen cards remain reachable. The sidebar preference and first-run shortcut help survive restarts. [PR 3](https://github.com/julianhahn/code-flow/pull/3) and [PR 4](https://github.com/julianhahn/code-flow/pull/4)
 - Zooming out is part of tracking what remains to review. Double-clicking restores a readable scale, and centering a tall card keeps its header visible. [PR 2](https://github.com/julianhahn/code-flow/pull/2)
 - A stale local base can introduce unrelated changes. The rewrite incorporates the open PR’s pinned GitHub base and retarget checks, including a regression with a moving branch. [PR 1](https://github.com/julianhahn/code-flow/pull/1)
 - Building a review reads Git snapshots directly. Earlier dependency installation and TypeScript import analysis were removed from the build path. Reference mode retains the existing empty-state behavior. [Dependency removal](https://github.com/julianhahn/code-flow/commit/f667d557bf) and [import analysis change](https://github.com/julianhahn/code-flow/commit/9d7949387f)

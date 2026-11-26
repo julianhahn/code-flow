@@ -185,6 +185,70 @@ static void start_profile(GtkWidget *window, GtkWidget *layout) {
   g_timeout_add(4, sample_pan, profile);
 }
 
+static void press_key(GtkWidget *window, guint keyval) {
+  GdkEvent *event = gdk_event_new(GDK_KEY_PRESS);
+  event->key.window = g_object_ref(gtk_widget_get_window(window));
+  event->key.send_event = TRUE;
+  event->key.keyval = keyval;
+  GdkSeat *seat = gdk_display_get_default_seat(gdk_display_get_default());
+  gdk_event_set_device(event, gdk_seat_get_keyboard(seat));
+  gtk_widget_event(window, event);
+  gdk_event_free(event);
+}
+
+/* PR 28118 has short Viewed headers in three lanes next to a tall fourth
+ * lane. Inspect the selected card in the live window at both zoom levels. */
+static void test_navigation(GtkWidget *window, GtkWidget *layout) {
+  static gchar **paths;
+  static const guint expected[] = {0, 1, 2, 3, 3, 2, 1, 0, 0};
+  static const guint keys[] = {GDK_KEY_Right, GDK_KEY_Right, GDK_KEY_Right,
+                               GDK_KEY_Right, GDK_KEY_Left, GDK_KEY_Left,
+                               GDK_KEY_Left, GDK_KEY_Left};
+  static guint step, pass, full_width;
+  guint width;
+  gtk_layout_get_size(GTK_LAYOUT(layout), &width, NULL);
+  if (stage == 4) {
+    full_width = width;
+    paths = g_strsplit(g_getenv("NATIVE_NAVIGATION"), "\n", -1);
+    if (g_strv_length(paths) != 4)
+      fail("Expected the first file of each of the four populated columns.");
+  }
+  if (pass == 1 && step == 0 && width >= full_width)
+    fail("The navigation scenario did not reach the requested zoom level.");
+  GtkWidget *frame = find(layout, GTK_TYPE_WIDGET, NULL, "focused-card");
+  GtkWidget *label = frame ? find(frame, GTK_TYPE_LABEL, NULL, NULL) : NULL;
+  gchar *path = label ? gtk_widget_get_tooltip_text(label) : NULL;
+  const gchar *target = pass == 2 ? (step == 0 ? paths[0] : g_getenv("NATIVE_NEXT_UNVIEWED"))
+                                  : paths[expected[step]];
+  if (g_strcmp0(path, target) != 0) {
+    screenshot(window, "unexpected-selection");
+    fail(g_strdup_printf("%s, step %u: expected %s, selected %s",
+                         pass ? "Fit all" : "100%", step,
+                         target, path ? path : "(none)"));
+  }
+  g_free(path);
+  if (pass == 2) {
+    if (step++ == 0) {
+      gtk_button_clicked(GTK_BUTTON(button(window, "Viewed (V)")));
+    } else {
+      g_strfreev(paths);
+      finish();
+    }
+    return;
+  }
+  if (step == 2)
+    screenshot(window, pass ? "backend-at-fit" : "backend-at-100");
+  if (step == G_N_ELEMENTS(keys)) {
+    step = 0;
+    if (++pass == 1)
+      gtk_button_clicked(GTK_BUTTON(button(window, "Fit all")));
+    else
+      gtk_button_clicked(GTK_BUTTON(button(window, "Viewed (V)")));
+    return;
+  }
+  press_key(window, keys[step++]);
+}
+
 static gboolean advance(gpointer unused) {
   if (g_get_monotonic_time() - started > 60 * G_USEC_PER_SEC) {
     gchar *message = g_strdup_printf(
@@ -203,7 +267,9 @@ static gboolean advance(gpointer unused) {
     gtk_window_present(GTK_WINDOW(window));
     break;
   case 1: {
-    GtkWidget *recent = button(window, "Pr · Review document publishing");
+    GtkWidget *recent = button(window, g_getenv("NATIVE_NAVIGATION")
+                                           ? "Pr · Navigation regression 28118"
+                                           : "Pr · Review document publishing");
     if (!recent)
       return G_SOURCE_CONTINUE;
     screenshot(window, "dashboard");
@@ -225,6 +291,10 @@ static gboolean advance(gpointer unused) {
   default: {
     if (!layout)
       fail("The visible map disappeared.");
+    if (g_getenv("NATIVE_NAVIGATION")) {
+      test_navigation(window, layout);
+      break;
+    }
     GtkScrolledWindow *scroll = GTK_SCROLLED_WINDOW(
         gtk_widget_get_ancestor(layout, GTK_TYPE_SCROLLED_WINDOW));
     GtkAdjustment *h = gtk_scrolled_window_get_hadjustment(scroll),
@@ -260,6 +330,9 @@ static gboolean advance(gpointer unused) {
       screenshot(window, "hide-specs");
       gtk_button_clicked(GTK_BUTTON(button(window, "100%")));
     } else if (stage == 12) {
+      /* With specs hidden, the second DBTypes card is the end of its column. */
+      press_key(window, GDK_KEY_Down);
+    } else if (stage == 13) {
       gtk_toggle_button_set_active(
           GTK_TOGGLE_BUTTON(button(window, "Viewed (V)")), TRUE);
     } else {
