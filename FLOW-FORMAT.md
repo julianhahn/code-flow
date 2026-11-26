@@ -14,14 +14,14 @@ Code tools are optional evidence providers. A parser, tokensave, source inspecti
 4. Validate it:
 
 ```sh
-python3 flow_model.py flows/publish-request.json --root /home/julian/plancraft
+cargo run --locked -- --validate-flow flows/publish-request.json --root "$HOME/plancraft"
 ```
 
 5. Open it using **Open flow JSON** in the GUI.
 
 ## Fields
 
-- `version`: currently `1`.
+- `version`: use `1` for explicit records or `2` for the compact form. See `flows/publish-request.compact.json` for named source references, field lists and endpoint evidence defaults.
 - `title`: the displayed flow title.
 - `regions`: named function/runtime boundaries. Each has `id`, `label`, and optional `parent`. A called function's region points to its caller's region. Separate runtimes have separate root regions.
 - `nodes`: `id`, `title`, `kind`, `region`, `source`, optional `hint`.
@@ -43,7 +43,7 @@ Supported layout relations:
 - `response`: return across a runtime boundary.
 - `loop`: explicitly marked back edge. It is not part of forward layout ranking.
 
-Custom names do not require changing Python. For example:
+Custom type names use the existing renderer. For example:
 
 ```json
 {

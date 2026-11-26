@@ -1,0 +1,29 @@
+[package]
+name = "code-flow"
+version = "0.2.0"
+edition = "2021"
+default-run = "code-flow"
+description = "A native review map for Git branches and GitHub pull requests"
+publish = false
+
+[dependencies]
+anyhow = "1"
+gtk = { version = "0.18", features = ["v3_24"] }
+gdk = "0.18"
+glib = "0.18"
+gio = "0.18"
+pango = "0.18"
+cairo-rs = "0.18"
+gdk-pixbuf = "0.18"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
+fs2 = "0.4"
+tempfile = "3"
+regex = "1"
+wait-timeout = "0.2"
+libc = "0.2"
+
+[profile.dev]
+debug = 1

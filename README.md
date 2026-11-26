@@ -1,151 +1,79 @@
 # Code Flow
 
-A small Linux and macOS GUI for reviewing changes and opening source locations in Zed.
+Code Flow is a native Rust and GTK 3 desktop app for reviewing Git branches and pull requests on macOS and Linux. Open a review to see its overview, then choose **Open diff map** to explore the patches. The source-evidence flow viewer is available separately.
 
-## macOS setup
+## Run
 
-The review window needs Homebrew Python and GTK 3. Install them, create a separate
-review clone, then install the Finder launcher from this repository:
-
-```sh
-brew install gtk+3 pygobject3
-# Only if ~/plancraft-review does not already exist:
-gh repo clone plancraft/plancraft ~/plancraft-review -- --filter=blob:none
-bash install-macos.sh
-open "$HOME/Applications/Code Flow.app"
-```
-
-The installer creates `~/Applications/Code Flow.app`. Keep this repository in place;
-the launcher runs its `review_app.py`. Remove the app to uninstall the launcher.
-It preserves the install-time command search path so Finder can find `gh` and `pi`.
-Both tools need an existing login. No credentials are stored in the launcher.
-
-Run tests with Homebrew's `python3 -m unittest discover -v`.
-
-Review errors appear in the window and in a per-session log under the system
-temporary directory's `code-flow-logs` folder. Each log starts with its full path.
-
-## Remaining setup work
-
-- Linux/Pop!_OS: the dock still does not reliably show the app icon. Match the
-  running window identity to the desktop launcher and verify on the real desktop.
-- The Linux launcher and desktop-entry installation remain machine-local.
-- The macOS launcher uses the default application icon.
-- Zoom batches wheel events; it is not continuous Excalidraw-style zoom.
-
-## Standalone review app
-
-Run `code-flow` from any folder, or open **Code Flow** from the Linux app menu.
-The installed launcher is `/home/julian/.local/bin/code-flow`; the desktop entry
-is `/home/julian/.local/share/applications/code-flow.desktop`.
-Remove those two files to uninstall the shortcuts; the repositories remain.
-
-The review app uses only `~/plancraft-review`, a separate clone.
-Choose a branch and comparison base, or enter a PR number. Refresh fetches branches.
-PR loading fetches its actual base and head. Comparisons use pinned commit SHAs
-and their merge base. Dirty checkouts and active Git operations block switching.
-The main Plancraft checkout is never switched. No tokensave index is needed.
-
-Selecting a branch or PR opens its compact overview. Click **Open diff map**
-to load all patches as open cards, with no per-file scrollbar or expanders.
-Ctrl/Cmd + scroll (mouse or trackpad) or the +/− buttons zoom.
-Two-finger scrolling pans in both directions; middle-drag also pans.
-Pinch zoom is available when the GTK backend delivers pinch gestures.
-**Fit all** zooms out to show every card, so files not yet marked Viewed stand
-out. Double-click a card's title or diff to zoom back in (to 100% if zoomed
-out) and center it.
-The selected card (blue border) changes only when you click a card or press an
-arrow key: arrows select the nearest card up, down, left or right, keep the
-current zoom and center it (not while typing in a text field). Scrolling never
-changes the selection. The first card is selected when a map opens.
-Shift + arrow scrolls the map in that direction instead.
-Press `?` (or the **?** button) for the list of keys and features. It also opens once on the first start.
-**Hide specs** toggles all spec/test files (`*.spec.*`, `*.test.*`, `*_spec.*`,
-`*_test.*`, `test_*`, and files under `spec`, `specs`, `__tests__` or
-`__snapshots__` folders) off the map to cut noise on big PRs.
-Shared folder nodes
-branch into filenames so prefixes are not repeated. Hover for the full path;
-click the copy icon to copy it. Columns remain DBTypes → Frontend → Shared
-→ Backend → Other. Added files are green, deleted red, modified yellow;
-renames use yellow and show both paths on hover. Added/deleted lines have
-separate green/red backgrounds. Unchanged lines remain neutral.
-
-Current limits: no review comments, side-by-side view, or PR URL input.
-Very large patches and zooming large maps can still be slow; all cards are
-rendered rather than virtualized.
-
-Checks: `/usr/bin/python3 -m unittest -v test_diff_canvas test_review_app test_review_summary test_review_git test_flow_model`.
-
-## Ask Pi
-
-The right-hand chat panel keeps one conversation per PR. Open the diff map first,
-select code if needed, then ask a question. Each message captures the PR number,
-reviewed commit, focused filename, file diff, and selected patch text. The context
-label shows what will be attached. Large diffs/selections are explicitly truncated.
-
-Pi uses its configured default model and login through RPC. Only `read`, `grep`,
-`find`, and `ls` are enabled. Extension, skill, prompt-template, project-settings,
-and context-file loading are disabled. There is no shell, edit, write, or GitHub
-posting tool. This is a tool restriction, not an OS filesystem sandbox: read tools
-are instructed to stay inside the review checkout.
-
-While Pi answers, branch-switch controls are locked. The checkout HEAD is checked
-before and after the answer; a mismatch is reported as incomplete. Other app
-instances can still change that checkout, so avoid reviewing two branches at once.
-Use Stop to end an answer. Each request is limited to 110 seconds.
-
-Chat sessions and displayed history live in `~/.local/state/code-flow/chats/`
-(or `$XDG_STATE_HOME/code-flow/chats/`). Old messages retain their commit labels.
-A session lock prevents two windows from writing the same PR conversation at once.
-Pi reads further files from the checkout; the system prompt is review-specific,
-not the full global interactive Pi setup.
-
-Chat tests: `/usr/bin/python3 -m unittest -v test_pi_chat test_review_app`.
-
-## Run original flow viewer
+Install a current stable Rust toolchain, Git, and the GitHub CLI. The default review repository is `plancraft/plancraft`. Its dedicated local clone lives at `~/plancraft-review`. If that clone already exists, reuse it.
 
 ```sh
-/usr/bin/python3 code-flow.py
+# macOS with Homebrew
+brew install gtk+3 pkg-config gh
+
+# Debian / Ubuntu / Pop!_OS
+sudo apt install build-essential pkg-config libgtk-3-dev git gh
+
+# One-time setup for a new review checkout
+gh auth login
+gh repo clone plancraft/plancraft "$HOME/plancraft-review" -- --filter=blob:none
+
+# Run from this source checkout
+cargo run --locked --release
 ```
 
-Requires GTK 3, Python GObject bindings, Pycairo, and Zed. On Debian/Ubuntu, the packages are `python3-gi`, `gir1.2-gtk-3.0`, and `python3-cairo`.
+Install a launcher with `./install-macos.sh` or `./install-linux.sh`. On macOS the installer accepts an alternate destination, so two versions can run side by side.
 
-This prototype reads the saved tokensave index for `main` in `/home/julian/plancraft`. Set `CODE_FLOW_ROOT` to use another checkout. It never writes to that index or the source checkout.
+```sh
+./install-macos.sh "$HOME/Applications/Code Flow (Rust).app"
+open "$HOME/Applications/Code Flow (Rust).app"
+```
 
-Agents now author JSON flows, not Python. The renderer validates evidence and calculates positions. See [FLOW-FORMAT.md](FLOW-FORMAT.md) for the agent contract, custom queue/HTTP links, and validation command. Use **Open flow JSON** to load a flow.
+The Linux installer adds `code-flow` to `~/.local/bin` and installs a desktop entry and icon. Both installers copy a release binary and capture the installing shell’s command search path and Pi settings directory. Install Zed’s `zed` command for source links and sign in to `pi` to use Ask Pi.
 
-Run the model checks with `python3 -m unittest -v test_flow_model`.
+## Review map
 
-## Controls
+- Type part of a branch name, select a recent review, or enter a PR number. **↻** fetches branches. Branches without a PR have an editable comparison base.
+- Pan with two-finger scrolling or the middle mouse button. A drag updates the horizontal and vertical scroll offsets together on the GTK frame clock. Card layout and text buffers stay in place during panning.
+- Use Ctrl/Cmd + scroll, pinch, or the zoom controls. **Fit all** shows the board at a reduced scale. Double-click a file to center it and return to at least 100%.
+- Click a card or use the arrow keys to select a file. Shift + arrow moves the viewport while preserving selection. **V** toggles Viewed. Markers survive unrelated commits and expire when the file changes.
+- **Hide specs** filters test cards from the map and its search and progress counts. Ctrl/Cmd + F searches displayed diffs. Select patch text to attach that exact selection to a chat.
+- The **Files** tab jumps to files. **Conversations** reads GitHub comments, reviews and thread replies. Hide and Unhide affect the local view. **Notes** saves formatted text per PR across commits.
+- Ctrl/Cmd + B toggles the sidebar. Press **?** for shortcuts. Code Flow remembers sidebar visibility and recently opened reviews.
 
-- Ctrl + mouse wheel: zoom.
-- Hold middle mouse button and drag: pan.
-- WASD: pan when the canvas has focus.
-- Click a blue source path: open the exact line in Zed.
-- Find function: search the saved tokensave index.
-- PR diff overview: show changed files in four review columns: DBTypes → Frontend → Shared/API → Backend.
-- Click a changed-file card to read its Git diff in the GUI. Set `CODE_FLOW_DIFF_BASE` to change the comparison base.
-- Publish example: open the source-verified `publishDocumentRequest` flow.
+The review build checks for local changes and in-progress Git operations before switching the dedicated clone. For PRs it fetches the head and base, computes their merge base and reads each patch from those commits. The GTK window reports the current build step and supports cancellation.
 
-## Reading the flow
+## Ask Pi and local state
 
-- Amber IF: condition, with YES/NO paths.
-- Blue CALL: function call.
-- Red THROW: stop with an error.
-- Green RETURN: finish the request.
+Each PR has a separate chat. Open its map before asking a question. Each message records the reviewed commit, file, patch and selected rows. The panel displays the configured model and effort, then the model that answered. Read-only tool access includes `read`, `grep`, `find` and `ls`. Pi reads the local checkout under your account’s filesystem permissions.
 
-The visual convention is right for sequence, down for a function drill-down, and dashed up for a return. Branch lanes do not imply a deeper function call.
+Code Flow reuses the existing notes, viewed markers, hidden discussions, recent selections and chat history under `$XDG_STATE_HOME/code-flow`, defaulting to `~/.local/state/code-flow`. A conversation lock protects each Pi session, and the checkout HEAD is checked before and after a response. Stop cancels a request. The deadline is 110 seconds. A per-session log under the system temporary directory’s `code-flow-logs` folder captures errors from desktop launches.
 
-## PR diff overview
+The defaults work with the original installation. For another repository, set `CODE_FLOW_REPO` to its GitHub owner/name, `CODE_FLOW_REVIEW_ROOT` to a separate clone, and `CODE_FLOW_PROTECTED_ROOT` to the main source checkout. Set `PI_CODING_AGENT_DIR` before installing a desktop launcher when using a custom Pi profile.
 
-The diff view is a separate view from flow mode. It does not change the flow JSON format or its layout. It reads `git diff --name-status` and groups paths by simple path hints. Unknown paths go into `Shared/API`. The diff window shows the real patch, and the source card can still be opened in Zed later.
+## Source-evidence flow viewer
 
-This is an overview, not a complete GitHub replacement yet. It does not show inline comments, review threads, or side-by-side hunks. The comparison defaults to `origin/main`; use `CODE_FLOW_DIFF_BASE` for another base.
+```sh
+cargo run --locked -- --flow
+cargo run --locked -- --flow path/to/flow.json --root "$HOME/plancraft"
+cargo run --locked -- --validate-flow path/to/flow.json --root "$HOME/plancraft"
+```
 
-## Current limits
+The viewer supports both JSON formats, verifies file hashes and line numbers, and lays out sequence, branches, calls, returns and runtime handoffs. Uncertain links have visible warnings. The bundled example describes the source revision against which it was authored. A changed or missing source produces an explanation in the window. **Find function** reads the saved tokensave index for main. **PR diff overview** compares the source checkout with `CODE_FLOW_DIFF_BASE` (default `origin/main`). Middle-drag or WASD pans the diagram. Ctrl + scroll zooms. Full source paths open the indicated line in Zed. See [the flow format](FLOW-FORMAT.md).
 
-The publication example in `flows/publish-request.json` is manually checked against its source, not automatically inferred from graph edges. Source hashes prevent showing it after its evidence changes. `publish-request-flow.py` is the old, unused prototype definition; retained only for comparison. It covers one function body, not the internals of every called function.
+## Verification
 
-Search results open source files; arbitrary verified execution flows are not implemented. Tokensave call order alone does not prove runtime order. Free-text workflow search is not implemented.
+```sh
+cargo test --all-targets --locked
+cargo clippy --all-targets --locked -- -D warnings
+tests/visual/run.sh
+```
 
-This is a prototype, not production software. It contains a Plancraft-specific example and stays private.
+The visual suite drives the shipping executable against a real temporary Git clone and offline GitHub and Pi fixtures. Its full-window screenshots come from the previous release at `0d6518bb2a`. It tests intermediate positions during a drag as well as the final image. The same Docker command runs on Linux and macOS. See [visual regression tests](tests/visual/README.md).
+
+## Decisions carried forward from earlier iterations
+
+- Selection follows an explicit click or arrow key. Directional navigation uses the edges of cards so wide or off-center cards remain reachable. The sidebar preference and first-run shortcut help survive restarts. [PR 3](https://github.com/julianhahn/code-flow/pull/3) and [PR 4](https://github.com/julianhahn/code-flow/pull/4)
+- Zooming out is part of tracking what remains to review. Double-clicking restores a readable scale, and centering a tall card keeps its header visible. [PR 2](https://github.com/julianhahn/code-flow/pull/2)
+- A stale local base can introduce unrelated changes. The rewrite incorporates the open PR’s pinned GitHub base and retarget checks, including a regression with a moving branch. [PR 1](https://github.com/julianhahn/code-flow/pull/1)
+- Building a review reads Git snapshots directly. Earlier dependency installation and TypeScript import analysis were removed from the build path. Reference mode retains the existing empty-state behavior. [Dependency removal](https://github.com/julianhahn/code-flow/commit/f667d557bf) and [import analysis change](https://github.com/julianhahn/code-flow/commit/9d7949387f)
+- Reopened Pi sessions reread the user’s configured provider, model and per-model thinking level. [Pi settings change](https://github.com/julianhahn/code-flow/commit/d705b78a35)
