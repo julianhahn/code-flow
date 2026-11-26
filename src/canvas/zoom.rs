@@ -15,6 +15,15 @@ enum Focus {
     Card(usize),
 }
 
+enum PendingInput {
+    Zoom {
+        zoom: f64,
+        focus: Focus,
+        gesture: bool,
+    },
+    Action(CameraUpdate),
+}
+
 #[derive(Clone, Copy, Debug)]
 struct View {
     ratio: f64,
@@ -62,10 +71,28 @@ pub(super) struct ZoomAnimation {
     motion: RefCell<Option<Transition>>,
     handoff: RefCell<Option<LastFrame>>,
     settling: Cell<bool>,
-    next_zoom: Cell<Option<f64>>,
     ticking: Cell<bool>,
-    actions: RefCell<Vec<CameraUpdate>>,
+    actions: RefCell<Vec<PendingInput>>,
     drag: Cell<Option<Point>>,
+}
+
+impl ZoomAnimation {
+    fn defer_zoom(&self, zoom: f64, focus: Focus, gesture: bool) {
+        // Wheel pulses can arrive while GTK maps the new board. Keep the
+        // latest accumulated destination without replaying stale layouts.
+        // A click or navigation key between pulses keeps its place.
+        let input = PendingInput::Zoom {
+            zoom,
+            focus,
+            gesture,
+        };
+        let mut pending = self.actions.borrow_mut();
+        if let Some(last @ PendingInput::Zoom { .. }) = pending.last_mut() {
+            *last = input;
+        } else {
+            pending.push(input);
+        }
+    }
 }
 
 struct Transition {
@@ -94,13 +121,22 @@ impl Canvas {
     }
 
     pub(super) fn zoom_target(&self) -> f64 {
-        self.zoom_animation.next_zoom.get().unwrap_or_else(|| {
-            self.zoom_animation
-                .motion
-                .borrow()
-                .as_ref()
-                .map_or(self.zoom.get(), |m| m.zoom)
-        })
+        self.zoom_animation
+            .actions
+            .borrow()
+            .iter()
+            .rev()
+            .find_map(|input| match input {
+                PendingInput::Zoom { zoom, .. } => Some(*zoom),
+                PendingInput::Action(_) => None,
+            })
+            .unwrap_or_else(|| {
+                self.zoom_animation
+                    .motion
+                    .borrow()
+                    .as_ref()
+                    .map_or(self.zoom.get(), |m| m.zoom)
+            })
     }
 
     fn card_at(&self, point: Point) -> Option<(usize, Point)> {
@@ -151,9 +187,8 @@ impl Canvas {
             return;
         }
         let zoom = zoom.clamp(0.15, 2.5);
-        if self.zoom_animation.settling.get() {
-            self.zoom_animation.next_zoom.set(Some(zoom));
-            self.after_zoom(move |c| c.request_zoom(zoom, focus, gesture));
+        if self.zoom_animation.settling.get() || !self.zoom_animation.actions.borrow().is_empty() {
+            self.zoom_animation.defer_zoom(zoom, focus, gesture);
             return;
         }
         self.cancel_key_pan();
@@ -505,16 +540,22 @@ impl Canvas {
             self.zoom_animation
                 .actions
                 .borrow_mut()
-                .push(Box::new(action));
+                .push(PendingInput::Action(Box::new(action)));
         } else {
             action(self);
         }
     }
 
     fn flush_zoom_actions(self: &Rc<Self>) {
-        self.zoom_animation.next_zoom.set(None);
-        for action in self.zoom_animation.actions.take() {
-            self.after_zoom(action);
+        for input in self.zoom_animation.actions.take() {
+            match input {
+                PendingInput::Zoom {
+                    zoom,
+                    focus,
+                    gesture,
+                } => self.request_zoom(zoom, focus, gesture),
+                PendingInput::Action(action) => self.after_zoom(action),
+            }
         }
     }
 
@@ -523,7 +564,6 @@ impl Canvas {
         self.zoom_animation.actions.take();
         self.zoom_animation.handoff.take();
         self.zoom_animation.settling.set(false);
-        self.zoom_animation.next_zoom.set(None);
         self.zoom_animation.drag.set(None);
         if self.preview.has_grab() {
             self.preview.grab_remove();
@@ -534,7 +574,35 @@ impl Canvas {
 
 #[cfg(test)]
 mod tests {
-    use super::View;
+    use super::{Focus, PendingInput, View, ZoomAnimation};
+
+    #[test]
+    fn wheel_retargets_during_handoff_keep_only_the_last_destination_until_a_key() {
+        let animation = ZoomAnimation::default();
+        animation.defer_zoom(0.8, Focus::Fit, false);
+        animation.defer_zoom(0.7, Focus::Point((30.0, 40.0)), true);
+        animation
+            .actions
+            .borrow_mut()
+            .push(PendingInput::Action(Box::new(|_| {})));
+        animation.defer_zoom(0.9, Focus::Fit, false);
+        assert!(matches!(
+            animation.actions.borrow().as_slice(),
+            [
+                PendingInput::Zoom {
+                    zoom: 0.7,
+                    focus: Focus::Point((30.0, 40.0)),
+                    gesture: true
+                },
+                PendingInput::Action(_),
+                PendingInput::Zoom {
+                    zoom: 0.9,
+                    focus: Focus::Fit,
+                    gesture: false
+                },
+            ]
+        ));
+    }
     #[test]
     fn measuring_a_short_header_keeps_its_point_under_the_pointer_near_the_top() {
         let view = View {
