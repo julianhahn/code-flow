@@ -1,0 +1,103 @@
+@define-color cf_bg #0d1117;
+@define-color cf_panel #161b22;
+@define-color cf_raised #21262d;
+@define-color cf_hover #30363d;
+@define-color cf_line #30363d;
+@define-color cf_line_strong #484f58;
+@define-color cf_text #e6edf3;
+@define-color cf_text_dim #c9d1d9;
+@define-color cf_muted #8b949e;
+@define-color cf_accent #58a6ff;
+@define-color cf_accent_solid #1f6feb;
+@define-color cf_accent_hover #388bfd;
+@define-color cf_on_accent #ffffff;
+@define-color cf_active_tab #f78166;
+@define-color cf_good #3fb950;
+@define-color cf_good_bg #12261a;
+@define-color cf_good_line #238636;
+@define-color cf_warn #e3b341;
+@define-color cf_warn_bg #2b2310;
+@define-color cf_warn_line #9e6a03;
+@define-color cf_bad #ff7b72;
+@define-color cf_bad_bg #2d1519;
+@define-color cf_purple #bc8cff;
+@define-color cf_user_bg #12233d;
+@define-color cf_user_line #1f4272;
+@define-color cf_add_bg #12261e;
+@define-color cf_add_fg #aff5b4;
+@define-color cf_del_bg #2d1519;
+@define-color cf_del_fg #ffdcd7;
+@define-color cf_hunk_bg #121d2f;
+@define-color cf_hunk_fg #79c0ff;
+@define-color cf_hit_bg #7a5c00;
+@define-color cf_hit_fg #ffffff;
+@define-color cf_current_bg #d29922;
+@define-color cf_current_fg #0d1117;
+@define-color cf_connector #484f58;
+@define-color cf_node #9da7b3;
+
+* { color: @cf_text_dim; font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; }
+*:disabled, *:disabled label { color: @cf_muted; }
+window, dialog, .background { background-color: @cf_bg; color: @cf_text; }
+popover, menu, tooltip { background-color: @cf_panel; border: 1px solid @cf_line; border-radius: 8px; }
+menuitem, menuitem label, modelbutton, modelbutton label { color: @cf_text; background-color: transparent; }
+menuitem:hover, modelbutton:hover { background-color: @cf_hover; }
+list, row { background-color: @cf_panel; color: @cf_text_dim; }
+row:hover { background-color: @cf_raised; }
+row:selected, row:selected label { background-color: @cf_accent_solid; color: @cf_on_accent; }
+selection, *:selected, text selection { background-color: @cf_accent_solid; color: @cf_on_accent; }
+scrolledwindow, viewport, .view, notebook, notebook > stack, notebook > stack > * { background-color: @cf_bg; }
+textview, textview text { background-color: @cf_bg; color: @cf_text; }
+scrollbar { background: transparent; }
+scrollbar slider { background-color: @cf_line; border-radius: 6px; min-width: 8px; min-height: 8px; }
+scrollbar slider:hover { background-color: @cf_line_strong; }
+paned > separator { background-color: @cf_line; min-width: 1px; }
+
+entry, button, combobox button { border-radius: 6px; min-height: 28px; }
+entry { background-color: @cf_bg; color: @cf_text; border: 1px solid @cf_line; padding: 4px 10px; caret-color: @cf_accent; }
+entry:focus { border-color: @cf_accent; box-shadow: 0 0 0 1px @cf_accent; }
+entry placeholder { color: @cf_muted; }
+button { background-image: none; background-color: @cf_raised; color: @cf_text_dim; border: 1px solid @cf_line; padding: 4px 12px; box-shadow: none; text-shadow: none; }
+button label { color: inherit; }
+button:hover { background-color: @cf_hover; border-color: @cf_line_strong; }
+button.primary { background-color: @cf_accent_solid; border-color: @cf_accent_hover; color: @cf_on_accent; font-weight: bold; padding: 6px 18px; }
+button.primary:hover { background-color: @cf_accent_hover; }
+button:disabled { opacity: 0.5; }
+button.link, button.link label { color: @cf_accent; }
+checkbutton check { background-image: none; background-color: @cf_bg; border: 1px solid @cf_line_strong; border-radius: 4px; color: @cf_on_accent; }
+checkbutton check:checked { background-color: @cf_accent_solid; border-color: @cf_accent_hover; }
+
+.overview-card { background-color: @cf_panel; border: 1px solid @cf_line; border-radius: 10px; padding: 28px; }
+.eyebrow { color: @cf_accent; font-size: 9pt; font-weight: bold; letter-spacing: 2px; }
+.review-title { font-size: 20pt; font-weight: bold; color: @cf_text; margin-bottom: 8px; }
+.muted { color: @cf_muted; font-size: 9pt; }
+.badge { border-radius: 999px; padding: 4px 12px; font-size: 9pt; font-weight: bold; border: 1px solid transparent; }
+.good { background-color: @cf_good_bg; color: @cf_good; border-color: @cf_good_line; }
+.attention { background-color: @cf_warn_bg; color: @cf_warn; border-color: @cf_warn_line; }
+.neutral { background-color: @cf_raised; color: @cf_text_dim; border-color: @cf_line; }
+.stats { background-color: @cf_bg; border: 1px solid @cf_line; border-radius: 8px; padding: 12px 14px; font-size: 11pt; font-weight: bold; margin-top: 8px; }
+label.stat-added { color: @cf_good; }
+label.stat-removed { color: @cf_bad; }
+label.stat-files { color: @cf_text_dim; }
+.purpose { font-size: 13pt; color: @cf_text_dim; margin-top: 2px; margin-bottom: 12px; }
+.section-title { font-size: 9pt; color: @cf_muted; font-weight: bold; letter-spacing: 1px; margin-top: 16px; }
+.file-row { padding: 8px 10px; }
+.keycap { background-color: @cf_raised; color: @cf_text; border: 1px solid @cf_line_strong; border-radius: 5px; padding: 2px 8px; font-weight: bold; }
+
+.review-sidebar { background-color: @cf_bg; border: 0; border-left: 1px solid @cf_line; }
+.review-sidebar header, notebook > header { background-color: @cf_panel; border-bottom: 1px solid @cf_line; }
+.review-sidebar tab { padding: 6px 12px; border-bottom: 2px solid transparent; background-color: transparent; }
+.review-sidebar tab label { color: @cf_muted; }
+.review-sidebar tab:hover label { color: @cf_text; }
+.review-sidebar tab:checked { border-bottom: 2px solid @cf_active_tab; }
+.review-sidebar tab:checked label { color: @cf_text; font-weight: bold; }
+
+.chat-user { background-color: @cf_user_bg; border: 1px solid @cf_user_line; border-radius: 8px; padding: 12px; margin-left: 20px; }
+.chat-agent { background-color: @cf_panel; border: 1px solid @cf_line; border-radius: 8px; padding: 12px; margin-right: 8px; }
+.chat-role { font-weight: bold; color: @cf_accent; font-size: 9pt; letter-spacing: 1px; }
+.chat-code { background-color: @cf_bg; border: 1px solid @cf_line; border-radius: 6px; padding: 10px; }
+.code-text { font-size: 10pt; color: @cf_text; }
+
+.diff-card { border-color: @cf_line; }
+.diff-card.focused-card { border-color: @cf_accent; }
+.diff-card.dependency-selected { border-color: @cf_purple; }
