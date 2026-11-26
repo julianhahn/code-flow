@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Deterministic offline subprocess speaking Pi's line-delimited RPC protocol."""
+import json
+import sys
+
+
+def send(kind, **fields):
+    print(json.dumps(dict(type=kind, **fields)), flush=True)
+
+
+for raw in sys.stdin:
+    request = json.loads(raw)
+    if request["type"] == "get_state":
+        send("response", id=request["id"], command="get_state", success=True,
+             data=dict(model=dict(provider="fixture", id="review"), thinkingLevel="low"))
+    elif request["type"] == "prompt":
+        if "libs/dbtypes/src/document.ts" not in request["message"] or "What changed?" not in request["message"]:
+            send("response", command="prompt", success=False, error="Missing selected file or question in review snapshot")
+            continue
+        send("response", command="prompt", success=True)
+        send("message_update", assistantMessageEvent=dict(type="text_delta",
+             delta="The document can now be published.\n\n```ts\nstatus: \"draft\" | \"published\";\n```"))
+        send("message_end", message=dict(role="assistant", model="review", provider="fixture"))
+        send("agent_settled")

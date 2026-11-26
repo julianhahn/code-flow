@@ -1,5 +1,6 @@
 """Drive the shipping app on X11 and compare complete window pixels with pre-port goldens."""
 import contextlib
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -37,7 +38,7 @@ def wait(description, test):
 
 def windows_named(title):
     try:
-        return xdo("search", "--onlyvisible", "--name", "^" + title + "$").splitlines()
+        return xdo("search", "--onlyvisible", "--name", "^" + re.escape(title) + "$").splitlines()
     except subprocess.CalledProcessError:
         return []
 
@@ -199,6 +200,51 @@ def flow_scenario(s):
     s.capture("16-flow-zoom", zoomed)
     xdo("key", "d", "s")
     s.capture("17-flow-pan", zoomed)
+    click(700, 35)  # PR diff overview
+    s.capture("18-flow-diff-map", name)
+    click(170, 278)
+    s.capture("19-flow-file-patch", "Diff · libs/dbtypes/src/document.ts")
+
+
+def reopened_review(s, checkout):
+    xdo("windowfocus", window_id())
+    s.capture("20-restarted-dashboard")
+    click(1300, 30)  # reopen the sidebar hidden in the previous session
+    time.sleep(.15)
+    click(478, 148)
+    time.sleep(.45)
+    click(85, 96)
+    time.sleep(.7)
+    click(1110, 780)
+    xdo("type", "What changed?")
+    xdo("key", "Return")
+    s.capture("21-pi-chat")
+    click(1270, 150)
+    s.capture("22-persisted-notes")
+    click(1160, 150)
+    time.sleep(.35)
+    click(979, 260)
+    s.capture("23-discussion")
+    click(1348, 280)
+    s.capture("24-hidden-discussion")
+    click(1176, 30)  # home
+    time.sleep(.2)
+    click(85, 30)  # mode
+    xdo("key", "Home", "Return")
+    click(350, 30)
+    xdo("type", "fpbl")
+    s.capture("25-branch-filter")
+    xdo("key", "ctrl+a")
+    xdo("type", "main")
+    xdo("key", "Return")
+    s.capture("26-branch-overview")
+    # A local edit must block checkout and leave the reviewer's work intact.
+    sentinel = checkout / "unfinished-review.txt"
+    sentinel.write_text("Uncommitted review work")
+    click(85, 96)
+    s.capture("27-dirty-checkout")
+    if sentinel.read_text() != "Uncommitted review work":
+        raise AssertionError("Opening the map overwrote uncommitted work")
 
 
 def exercise(cmd, env, run, screenshots):
@@ -231,6 +277,8 @@ def main():
         flow = ["/usr/bin/python3", "/reference/code-flow.py"] if legacy else ["/build/debug/code-flow", "--flow"]
         exercise(review, env, scenario, screenshots)
         exercise(flow, prepare_flow(env), flow_scenario, screenshots)
+        exercise(review, dict(env, VISUAL_DISCUSSIONS="1"),
+                 lambda s: reopened_review(s, home / "plancraft-review"), screenshots)
         screenshots.finish()
 
 

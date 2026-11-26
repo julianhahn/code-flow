@@ -75,26 +75,8 @@ def prepare(home):
                     reviewDecision="APPROVED", changedFiles=len(PATHS), additions=12, deletions=4,
                     statusCheckRollup=[dict(status="COMPLETED", conclusion="SUCCESS")])
     (home / "pr.json").write_text(json.dumps(metadata))
-    bin_dir = home / "bin"
-    bin_dir.mkdir()
-    gh = bin_dir / "gh"
-    gh.write_text("""#!/usr/bin/env python3
-import json, os, sys
-from pathlib import Path
-args = sys.argv[1:]
-if args[:2] == ['pr', 'view']:
-    print((Path(os.environ['HOME']) / 'pr.json').read_text())
-elif args[:2] == ['pr', 'list']:
-    print('[{"number":42,"state":"OPEN","updatedAt":"2025-01-01"}]')
-elif args[:2] == ['api', 'graphql']:
-    page = {'nodes': [], 'pageInfo': {'hasNextPage': False, 'endCursor': None}}
-    print(json.dumps({'data': {'repository': {'pullRequest': {'id': 'PR_42'}},
-                               'root': {k: page for k in ('comments', 'reviews', 'reviewThreads')}}}))
-else:
-    sys.exit('Unexpected gh invocation ' + str(args))
-""")
-    gh.chmod(0o755)
-    env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+    commands = Path(__file__).resolve().parent / "commands"
+    env["PATH"] = str(commands) + os.pathsep + env["PATH"]
     return env
 
 def prepare_flow(env):
