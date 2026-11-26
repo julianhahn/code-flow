@@ -21,14 +21,14 @@ gh repo clone plancraft/plancraft "$HOME/plancraft-review" -- --filter=blob:none
 cargo run --locked --release
 ```
 
-Install a launcher with `./install-macos.sh` or `./install-linux.sh`. On macOS the installer accepts an alternate destination, so two versions can run side by side.
+On macOS, install **Code Flow** in your Applications folder and open it from Finder or the Dock.
 
 ```sh
-./install-macos.sh "$HOME/Applications/Code Flow (Rust).app"
-open "$HOME/Applications/Code Flow (Rust).app"
+./install-macos.sh
+open "$HOME/Applications/Code Flow.app"
 ```
 
-The Linux installer adds `code-flow` to `~/.local/bin` and installs a desktop entry and icon. Both installers copy a release binary and capture the installing shell’s command search path and Pi settings directory. Install Zed’s `zed` command for source links and sign in to `pi` to use Ask Pi.
+On Linux, run `./install-linux.sh` and choose **Code Flow** in the application menu. The installer adds `code-flow` to `~/.local/bin` and installs a desktop entry and icon. Both installers copy a release binary and capture the installing shell’s command search path and Pi settings directory. Install Zed’s `zed` command for source links and sign in to `pi` to use Ask Pi.
 
 ## Review map
 
