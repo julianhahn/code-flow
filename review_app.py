@@ -274,7 +274,8 @@ class ReviewWindow(Gtk.Window):
             if self.views.get_visible_child_name() == 'map':
                 self.views.get_child_by_name('map').open_search()
                 return True
-        if event.keyval not in (Gdk.KEY_v, Gdk.KEY_V):
+        arrows = {Gdk.KEY_Up: 'up', Gdk.KEY_Down: 'down', Gdk.KEY_Left: 'left', Gdk.KEY_Right: 'right'}
+        if event.keyval not in (Gdk.KEY_v, Gdk.KEY_V) and event.keyval not in arrows:
             return False
         if event.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK | Gdk.ModifierType.SUPER_MASK):
             return False
@@ -284,6 +285,8 @@ class ReviewWindow(Gtk.Window):
         if self.views.get_visible_child_name() != 'map':
             return False
         board = self.views.get_child_by_name('map')
+        if event.keyval in arrows:
+            return board.navigate(arrows[event.keyval])
         if board.active_file is None:
             return False
         board.sticky_viewed.set_active(not board.sticky_viewed.get_active())

@@ -409,8 +409,6 @@ class DiffCanvas(Gtk.Box):
 
     def center_on_file(self, path, minimum_zoom=1.0):
         """Zoom in (never out) to minimum_zoom and center the file's card."""
-        if self.zoom < minimum_zoom:
-            self.set_zoom(minimum_zoom)
         def center():
             if self.destroyed:
                 return False
@@ -425,7 +423,43 @@ class DiffCanvas(Gtk.Box):
                 self.update_location()
                 break
             return False
-        GLib.idle_add(center, priority=GLib.PRIORITY_LOW)
+        if self.zoom < minimum_zoom:
+            self.set_zoom(minimum_zoom)
+            GLib.idle_add(center, priority=GLib.PRIORITY_LOW)
+        else:
+            center()  # Synchronous, so held-down arrow keys stay in step.
+
+    def neighbor_path(self, key):
+        """Path of the nearest card in the arrow direction ('up', 'down', 'left', 'right')."""
+        positions = self.card_positions
+        if not positions:
+            return None
+        current = next((p for p in positions if self.active_file and p[0][2] == self.active_file[2]), None)
+        if current is None:
+            return positions[0][0][2]
+        _, x, y, width, height = current
+        center_x, center_y = x + width/2, y + height/2
+        best = None
+        for file, x2, y2, width2, height2 in positions:
+            if file[2] == current[0][2]:
+                continue
+            dx, dy = x2 + width2/2 - center_x, y2 + height2/2 - center_y
+            along, across = {'down': (dy, dx), 'up': (-dy, dx),
+                             'right': (dx, dy), 'left': (-dx, dy)}[key]
+            if along <= 0:
+                continue
+            score = along + 2*abs(across)
+            if best is None or score < best[0]:
+                best = (score, file[2])
+        return best[1] if best else None
+
+    def navigate(self, key):
+        """Jump to the next card in an arrow direction, keeping the zoom and centering it."""
+        path = self.neighbor_path(key)
+        if path is None:
+            return False
+        self.center_on_file(path, 0)
+        return True
 
     def bind_events(self, widget, path=None):
         widget.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK |

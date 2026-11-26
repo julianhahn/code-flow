@@ -74,6 +74,21 @@ class NavigationTests(unittest.TestCase):
         finally:
             canvas.destroy()
 
+    def test_arrow_navigation_picks_nearest_card_in_direction(self):
+        def card(name, x, y):
+            return ((('M', name, name, '')), x, y, 100, 50)
+        positions = [card('a', 0, 0), card('b', 0, 100), card('c', 0, 200), card('d', 300, 100)]
+        canvas = SimpleNamespace(card_positions=positions, active_file=positions[1][0])
+        neighbor = lambda key: DiffCanvas.neighbor_path(canvas, key)
+        self.assertEqual(neighbor('down'), 'c')
+        self.assertEqual(neighbor('up'), 'a')
+        self.assertEqual(neighbor('right'), 'd')
+        self.assertIsNone(neighbor('left'))
+        canvas.active_file = positions[2][0]
+        self.assertIsNone(neighbor('down'))
+        canvas.active_file = None
+        self.assertEqual(neighbor('down'), 'a')
+
     def test_first_populated_column_starts_at_left_edge(self):
         canvas = DiffCanvas([('M', 'a.py', 'a.py', '@@ -1 +1 @@\n-old\n+new')])
         try:
