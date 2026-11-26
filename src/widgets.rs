@@ -10,7 +10,7 @@ pub fn label(text: &str, classes: &[&str]) -> gtk::Label {
     let label = gtk::Label::new(Some(text));
     label.set_xalign(0.);
     for class in classes {
-        label.style_context().add_class(class);
+        crate::theme::style(&label, class);
     }
     label
 }
@@ -222,7 +222,7 @@ pub fn help(parent: &gtk::Window) -> gtk::Window {
         body.pack_start(&grid, false, false, 0);
     }
     let close = button("Got it");
-    close.style_context().add_class("primary");
+    crate::theme::style(&close, "primary");
     close.set_halign(gtk::Align::End);
     close.set_margin_top(12);
     close.connect_clicked(glib::clone!(@weak window => move |_| window.close()));

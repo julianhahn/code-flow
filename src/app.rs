@@ -114,7 +114,7 @@ impl App {
         outer.pack_start(&status, false, false, 0);
         let actions = hbox(12);
         let diff = button("Open diff map");
-        diff.style_context().add_class("primary");
+        crate::theme::style(&diff, "primary");
         let github =
             gtk::LinkButton::with_label("https://github.com/plancraft/plancraft", "View on GitHub");
         actions.pack_start(&diff, false, false, 0);
@@ -127,7 +127,7 @@ impl App {
         let progress = Progress::new();
         views.add_named(&progress.widget, "loading");
         let notebook = gtk::Notebook::new();
-        notebook.style_context().add_class("review-sidebar");
+        crate::theme::style(&notebook, "review-sidebar");
         let split = gtk::Paned::new(gtk::Orientation::Horizontal);
         split.pack1(&views, true, false);
         split.pack2(&notebook, false, false);
@@ -579,7 +579,7 @@ impl App {
         panel.set_margin(16);
         panel.set_size_request(700, -1);
         panel.set_valign(gtk::Align::Start);
-        panel.style_context().add_class("overview-card");
+        crate::theme::style(&panel, "overview-card");
         self.overview.pack_start(&panel, true, true, 0);
         let add = |text: &str, classes: &[&str]| {
             let widget = label(text, classes);
@@ -643,7 +643,7 @@ impl App {
             );
             if let Some(count) = pr["changedFiles"].as_u64() {
                 let stats = hbox(24);
-                stats.style_context().add_class("stats");
+                crate::theme::style(&stats, "stats");
                 for (text, class) in [
                     (format!("{count} changed files"), "stat-files"),
                     (
@@ -711,7 +711,7 @@ impl App {
                 );
                 name.set_ellipsize(pango::EllipsizeMode::Middle);
                 let btn = gtk::Button::new();
-                btn.style_context().add_class("file-row");
+                crate::theme::style(&btn, "file-row");
                 btn.set_tooltip_text(Some(&path));
                 btn.add(&name);
                 btn.connect_clicked(clone!(@weak board => move |_| board.jump_to_file(&path)));

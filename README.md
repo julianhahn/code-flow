@@ -68,7 +68,7 @@ cargo clippy --all-targets --locked -- -D warnings
 tests/visual/run.sh
 ```
 
-The visual suite drives the shipping executable against a real temporary Git clone and offline GitHub and Pi fixtures. Its full-window screenshots come from the previous release at `0d6518bb2a`. It tests intermediate positions during a drag as well as the final image. The same Docker command runs on Linux and macOS. See [visual regression tests](tests/visual/README.md).
+The visual suite drives the shipping executable against a real temporary Git clone and offline GitHub and Pi fixtures. Its full-window screenshots come from the previous release at `0d6518bb2a`. It tests intermediate positions during a drag as well as the final image. The same Docker command runs on Linux and macOS. See [visual regression tests](tests/visual/README.md). The [native desktop comparison](tests/visual/native/README.md) also captures the original and Rust windows on the same display and measures painted frame intervals during a sustained drag over 160 files.
 
 ## Decisions carried forward from earlier iterations
 
@@ -76,4 +76,6 @@ The visual suite drives the shipping executable against a real temporary Git clo
 - Zooming out is part of tracking what remains to review. Double-clicking restores a readable scale, and centering a tall card keeps its header visible. [PR 2](https://github.com/julianhahn/code-flow/pull/2)
 - A stale local base can introduce unrelated changes. The rewrite incorporates the open PR’s pinned GitHub base and retarget checks, including a regression with a moving branch. [PR 1](https://github.com/julianhahn/code-flow/pull/1)
 - Building a review reads Git snapshots directly. Earlier dependency installation and TypeScript import analysis were removed from the build path. Reference mode retains the existing empty-state behavior. [Dependency removal](https://github.com/julianhahn/code-flow/commit/f667d557bf) and [import analysis change](https://github.com/julianhahn/code-flow/commit/9d7949387f)
+- The global theme covers dialogs, popovers and menus as well as the review window. The shared widget helpers check style names against the stylesheet, and tests check text contrast. [Theme and selection decisions](https://github.com/julianhahn/code-flow/pull/4)
+- Card controls and borders scale with zoom. The canvas measures actual GTK text layout to keep the next column clear of long wrapped patches. [Card allocation fixes](https://github.com/julianhahn/code-flow/commit/50bf5ae047)
 - Reopened Pi sessions reread the user’s configured provider, model and per-model thinking level. [Pi settings change](https://github.com/julianhahn/code-flow/commit/d705b78a35)

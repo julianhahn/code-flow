@@ -86,9 +86,7 @@ impl Card {
     fn new(list: &gtk::Box, user: bool, anchor: &str, text: &str) -> Self {
         let widget = vbox(10);
         widget.set_margin(2);
-        widget
-            .style_context()
-            .add_class(if user { "chat-user" } else { "chat-agent" });
+        crate::theme::style(&widget, if user { "chat-user" } else { "chat-agent" });
         let role = if user { "You" } else { "Agent" };
         let heading = label(
             &if anchor.is_empty() {
@@ -174,7 +172,7 @@ fn render_message(body: &gtk::Box, text: &str) {
     for (language, text) in blocks {
         if let Some(language) = language {
             let panel = vbox(6);
-            panel.style_context().add_class("chat-code");
+            crate::theme::style(&panel, "chat-code");
             let bar = hbox(8);
             bar.pack_start(
                 &label(
