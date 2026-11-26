@@ -170,18 +170,20 @@ impl Canvas {
             "right" => (0, 1.0),
             _ => return,
         };
-        if self.camera_updates.borrow().is_empty() {
-            self.start_key_pan(axis, sign);
-        } else {
+        self.after_zoom(move |c| {
+            if c.camera_updates.borrow().is_empty() {
+                c.start_key_pan(axis, sign);
+                return;
+            }
             // Viewed/zoom may already have scheduled a center against the new
             // geometry. A relative pan belongs after that center.
-            let generation = self.key_pan.generation.get();
-            self.after_layout(move |c| {
+            let generation = c.key_pan.generation.get();
+            c.after_layout(move |c| {
                 if c.key_pan.generation.get() == generation {
                     c.start_key_pan(axis, sign);
                 }
             });
-        }
+        });
     }
 
     fn start_key_pan(self: &Rc<Self>, axis: usize, sign: f64) {

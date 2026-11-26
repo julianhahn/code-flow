@@ -190,8 +190,9 @@ impl NaturalSizes {
         header: &gtk::Box,
         body: Option<&gtk::TextView>,
         height: i32,
+        zoom: f64,
     ) -> i32 {
-        let unit_zoom = c.zoom.get() == 1.0;
+        let unit_zoom = zoom == 1.0;
         let header = *self.headers[i].get_or_init(|| {
             let widget = if unit_zoom {
                 header.clone()
@@ -216,7 +217,10 @@ impl NaturalSizes {
     }
 }
 
-struct Layout {
+pub(super) struct Layout {
+    pub(super) board: gtk::Layout,
+    zoom: f64,
+    cards: Vec<Card>,
     order: Vec<(usize, usize)>,
     index: usize,
     styles: Styles,
@@ -231,8 +235,7 @@ struct Layout {
 }
 
 impl Layout {
-    fn new(c: &Canvas) -> Self {
-        let z = c.zoom.get();
+    pub(super) fn new(c: &Canvas, board: gtk::Layout, z: f64) -> Self {
         let mut order: Vec<_> = c
             .files
             .iter()
@@ -252,6 +255,9 @@ impl Layout {
             col.cmp(&col2).then(c.files[a].path.cmp(&c.files[b].path))
         });
         Self {
+            board,
+            zoom: z,
+            cards: Vec::with_capacity(order.len()),
             order,
             index: 0,
             styles: Styles::new(z),
@@ -265,10 +271,10 @@ impl Layout {
             folders: HashMap::new(),
         }
     }
-    fn draw_next(&mut self, c: &Rc<Canvas>) -> Option<usize> {
+    pub(super) fn draw_next(&mut self, c: &Rc<Canvas>) -> Option<usize> {
         let &(column, index) = self.order.get(self.index)?;
         let f = &c.files[index];
-        let z = c.zoom.get();
+        let z = self.zoom;
         if self.column != Some(column) {
             self.folders.clear();
             if self.column.is_some() {
@@ -278,7 +284,7 @@ impl Layout {
             self.y = 85.0 * z;
             self.logical_y = 85;
             self.right = self.column_x + 600.0 * z;
-            c.put(
+            self.put(
                 &self
                     .styles
                     .label(&COLUMNS[column].to_uppercase(), "panel", "node", z),
@@ -299,11 +305,11 @@ impl Layout {
             } else {
                 let x = self.column_x + d as f64 * 28.0 * z;
                 if let Some(origin) = parent {
-                    c.connector(&self.styles, origin, x, self.y + 10.0 * z, "connector");
+                    self.connector(c, origin, x, self.y + 10.0 * z, "connector");
                 }
                 let node = self.styles.label(name, "panel", "node", z);
                 node.set_tooltip_text(Some(&prefix));
-                let size = c.put(&node, x, self.y);
+                let size = self.put(&node, x, self.y);
                 let point = (x + 12.0 * z, self.y + size.1);
                 self.folders.insert(prefix.clone(), point);
                 self.y += size.1 + 18.0 * z;
@@ -314,20 +320,14 @@ impl Layout {
             parent = Some(point);
         }
         let x = self.column_x + (parts.len() - 1) as f64 * 28.0 * z;
-        let (frame, header, text) = c.make_card(index, &self.styles);
+        let (frame, header, text) = c.make_card(index, &self.styles, z);
         if let Some(origin) = parent {
-            c.connector(
-                &self.styles,
-                origin,
-                x,
-                self.y + 10.0 * z,
-                status_colors(&f.status).1,
-            );
+            self.connector(c, origin, x, self.y + 10.0 * z, status_colors(&f.status).1);
         }
-        let (w, h) = c.put(&frame, x, self.y);
+        let (w, h) = self.put(&frame, x, self.y);
         let natural = c
             .natural_sizes
-            .card_height(c, index, &header, text.as_ref(), h as i32);
+            .card_height(c, index, &header, text.as_ref(), h as i32, z);
         self.slots.push(model::Slot {
             file: index,
             column,
@@ -335,7 +335,7 @@ impl Layout {
             bottom: self.logical_y + i64::from(natural),
         });
         self.logical_y += i64::from(natural) + 40;
-        c.cards.borrow_mut().push(Card {
+        self.cards.push(Card {
             index,
             rect: Rect { x, y: self.y, w, h },
             frame,
@@ -347,20 +347,33 @@ impl Layout {
         self.index += 1;
         Some(index)
     }
-    fn finish(&mut self, c: &Canvas) {
-        c.navigation
-            .borrow_mut()
-            .set_layout(std::mem::take(&mut self.slots));
-        let z = c.zoom.get();
+    pub(super) fn rect(&self, file: usize) -> Option<Rect> {
+        self.cards
+            .iter()
+            .find(|card| card.index == file)
+            .map(|card| card.rect)
+    }
+    pub(super) fn board_size(&self) -> (u32, u32) {
+        let z = self.zoom;
         let x = if self.column.is_some() {
             self.right + 100.0 * z
         } else {
             self.column_x
         };
-        c.board.set_size(
+        (
             round(x + 400.0 * z) as u32,
             round(self.bottom + 500.0 * z) as u32,
-        );
+        )
+    }
+    pub(super) fn finish(&mut self, c: &Canvas) {
+        c.focused.set(None);
+        c.cards.replace(std::mem::take(&mut self.cards));
+        c.navigation
+            .borrow_mut()
+            .set_layout(std::mem::take(&mut self.slots));
+        let (w, h) = self.board_size();
+        self.board.set_size(w, h);
+        let z = self.zoom;
         c.info.set_text(&format!(
             "{}% · Green added / Red deleted / Yellow modified",
             round(100.0 * z)
@@ -382,10 +395,29 @@ impl Layout {
         }
         c.update_location();
     }
+    fn put(&self, w: &impl IsA<gtk::Widget>, x: f64, y: f64) -> (f64, f64) {
+        self.board.put(w, round(x), round(y));
+        w.show_all();
+        let natural = w.preferred_size().1;
+        (natural.width as f64, natural.height as f64)
+    }
+    fn connector(&self, c: &Rc<Canvas>, (px, py): (f64, f64), x: f64, y: f64, color: &'static str) {
+        for (left, top, w, h) in [
+            (px, py, 2.0, (y - py).max(2.0)),
+            (px, y, (x - px).max(2.0), 2.0),
+        ] {
+            let line = gtk::EventBox::new();
+            self.styles.style(&line, color, color);
+            line.set_size_request(round(w), round(h));
+            self.put(&line, left, top);
+            c.bind_input(&line, None);
+        }
+    }
 }
 
 impl Canvas {
     pub fn cancel_render(&self) {
+        self.cancel_zoom();
         if let Some(id) = self.render_source.take() {
             id.remove();
         }
@@ -395,10 +427,11 @@ impl Canvas {
         self.cancel_render();
         self.focused.set(None);
         self.cards.borrow_mut().clear();
-        for child in self.board.children() {
-            self.board.remove(&child);
+        let board = self.board.borrow();
+        for child in board.children() {
+            board.remove(&child);
         }
-        Layout::new(self)
+        Layout::new(self, board.clone(), self.zoom.get())
     }
     pub fn render(self: &Rc<Self>) {
         let mut layout = self.start_render();
@@ -434,38 +467,25 @@ impl Canvas {
         });
         self.render_source.replace(Some(id));
     }
-    fn put(&self, w: &impl IsA<gtk::Widget>, x: f64, y: f64) -> (f64, f64) {
-        self.board.put(w, round(x), round(y));
-        w.show_all();
-        let natural = w.preferred_size().1;
-        (natural.width as f64, natural.height as f64)
-    }
-    fn connector(
-        self: &Rc<Self>,
-        styles: &Styles,
-        (px, py): (f64, f64),
-        x: f64,
-        y: f64,
-        color: &'static str,
-    ) {
-        for (left, top, w, h) in [
-            (px, py, 2.0, (y - py).max(2.0)),
-            (px, y, (x - px).max(2.0), 2.0),
-        ] {
-            let line = gtk::EventBox::new();
-            styles.style(&line, color, color);
-            line.set_size_request(round(w), round(h));
-            self.put(&line, left, top);
-            self.bind_input(&line, None);
+    /// Measuring just the pivot card includes native checkbox and font rounding.
+    /// Long patches keep the geometric preview until their regular layout slice.
+    pub(super) fn preview_card_size(self: &Rc<Self>, i: usize, zoom: f64) -> Option<(f64, f64)> {
+        if !self.viewed.borrow().contains(&i) && self.patches[i].content.len() > 16_384 {
+            return None;
         }
+        let (frame, _, _) = self.make_card(i, &Styles::new(zoom), zoom);
+        frame.show_all();
+        let natural = frame.preferred_size().1;
+        Some((natural.width as f64, natural.height as f64))
     }
+
     fn make_card(
         self: &Rc<Self>,
         i: usize,
         styles: &Styles,
+        z: f64,
     ) -> (gtk::Box, gtk::Box, Option<gtk::TextView>) {
         let file = &self.files[i];
-        let z = self.zoom.get();
         let frame = gtk::Box::new(V, 0);
         theme::style(&frame, "diff-card");
         frame.style_context().add_provider(&styles.border, PRIORITY);

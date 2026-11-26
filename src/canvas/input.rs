@@ -1,6 +1,5 @@
 use super::*;
 use glib::Propagation::{Proceed, Stop};
-use std::time::Duration;
 
 #[derive(Clone, Copy)]
 pub(super) struct Drag {
@@ -9,13 +8,13 @@ pub(super) struct Drag {
 }
 
 impl Canvas {
-    fn viewport(&self) -> (f64, f64) {
+    pub(super) fn viewport(&self) -> (f64, f64) {
         (
             self.scroll.hadjustment().value(),
             self.scroll.vadjustment().value(),
         )
     }
-    fn pan_to(&self, (x, y): (f64, f64)) {
+    pub(super) fn pan_to(&self, (x, y): (f64, f64)) {
         self.scroll.hadjustment().set_value(x);
         self.scroll.vadjustment().set_value(y);
     }
@@ -126,64 +125,13 @@ impl Canvas {
                 _ => 1.0,
             };
             if delta != 0.0 {
-                c.queue_zoom(c.zoom_target() * 1.08f64.powf(-delta.clamp(-5.0, 5.0)));
+                c.wheel_zoom(
+                    c.zoom_target() * 1.08f64.powf(-delta.clamp(-5.0, 5.0)),
+                    c.event_anchor(e.root()),
+                );
             }
             Stop
         });
-    }
-    fn zoom_target(&self) -> f64 {
-        self.pending_zoom.get().unwrap_or(self.zoom.get())
-    }
-    fn cancel_zoom(&self) {
-        if let Some(id) = self.zoom_timer.take() {
-            id.remove();
-        }
-        self.pending_zoom.set(None);
-    }
-    fn queue_zoom(self: &Rc<Self>, target: f64) {
-        self.cancel_zoom();
-        let target = target.clamp(0.15, 2.5);
-        self.pending_zoom.set(Some(target));
-        self.info.set_text(&format!(
-            "{}% · Zooming…",
-            (target * 100.0).round_ties_even() as i32
-        ));
-        let weak = Rc::downgrade(self);
-        self.zoom_timer.replace(Some(glib::timeout_add_local_once(
-            Duration::from_millis(120),
-            move || {
-                if let Some(c) = weak.upgrade() {
-                    c.zoom_timer.take();
-                    c.pending_zoom.set(None);
-                    c.set_zoom(target);
-                }
-            },
-        )));
-    }
-    pub fn set_zoom(self: &Rc<Self>, target: f64) {
-        self.cancel_zoom();
-        let z = target.clamp(0.15, 2.5);
-        let ratio = z / self.zoom.replace(z);
-        let center = |adj: gtk::Adjustment| {
-            (adj.value() + adj.page_size() * 0.5) * ratio - adj.page_size() * 0.5
-        };
-        let point = (
-            center(self.scroll.hadjustment()),
-            center(self.scroll.vadjustment()),
-        );
-        self.render();
-        self.after_layout(move |c| c.pan_to(point));
-    }
-    pub fn fit_all(self: &Rc<Self>) {
-        self.cancel_zoom();
-        let (w, h) = self.board.size();
-        let pw = self.scroll.hadjustment().page_size();
-        let ph = self.scroll.vadjustment().page_size();
-        if w == 0 || h == 0 || pw <= 0.0 || ph <= 0.0 {
-            return;
-        }
-        self.set_zoom(self.zoom.get() * (pw / w as f64).min(ph / h as f64) * 0.98);
-        self.after_layout(|c| c.pan_to((0.0, 0.0)));
     }
     pub(super) fn invalidate_camera_restore(&self) {
         self.cancel_key_pan();
@@ -202,6 +150,10 @@ impl Canvas {
         let Some(&i) = self.paths.get(path) else {
             return;
         };
+        if self.zoom_in_flight() {
+            self.after_zoom(move |c| c.jump_to_file(&c.files[i].path));
+            return;
+        }
         if !self.cards.borrow().iter().any(|card| card.index == i) {
             return;
         }
@@ -215,9 +167,11 @@ impl Canvas {
                 .map(|p| p.rect);
             if let Some(r) = rect {
                 let a = c.scroll.vadjustment();
-                let (w, h) = c.board.size();
+                let (w, h) = c.board.borrow().size();
                 let end = r.y + a.page_size();
-                c.board.set_size(w, h.max(end.round_ties_even() as u32));
+                c.board
+                    .borrow()
+                    .set_size(w, h.max(end.round_ties_even() as u32));
                 a.set_upper(a.upper().max(end));
                 c.pan_to((r.x, r.y));
             }
@@ -252,15 +206,23 @@ impl Canvas {
         let Some(&index) = self.paths.get(path) else {
             return;
         };
+        if self.zoom_in_flight() {
+            self.after_zoom(move |c| c.center_on_file(&c.files[index].path, minimum_zoom));
+            return;
+        }
         self.select_file(index);
         if self.zoom.get() < minimum_zoom {
-            self.set_zoom(minimum_zoom);
-            self.after_layout(move |c| c.center(index));
+            self.zoom_to_card(minimum_zoom, index);
         } else {
             self.center(index);
         }
     }
-    pub fn navigate(&self, direction: &str) {
+    pub fn navigate(self: &Rc<Self>, direction: &str) {
+        if self.zoom_in_flight() {
+            let direction = direction.to_owned();
+            self.after_zoom(move |c| c.navigate(&direction));
+            return;
+        }
         self.cancel_key_pan();
         let Some(current) = self.active.get() else {
             return;
@@ -288,13 +250,17 @@ pub(super) fn pinch(c: &Rc<Canvas>) -> Pinch {
     if let Some(filter) = quartz::Filter::new(c) {
         return Pinch::Quartz { _filter: filter };
     }
-    let gesture = gtk::GestureZoom::new(&c.scroll);
+    let overlay = c.scroll.parent().expect("map viewport");
+    let gesture = gtk::GestureZoom::new(&overlay);
     gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
     let start = Rc::new(Cell::new(1.0));
     gesture
         .connect_begin(glib::clone!(@weak c,@strong start=>move |_,_|start.set(c.zoom_target())));
     gesture
-        .connect_scale_changed(glib::clone!(@weak c=>move|_,scale|c.queue_zoom(start.get()*scale)));
+        .connect_scale_changed(glib::clone!(@weak c=>move|gesture,scale| {
+            let p = gesture.bounding_box_center().unwrap_or((c.scroll.allocated_width() as f64 * 0.5, c.scroll.allocated_height() as f64 * 0.5));
+            c.wheel_zoom(start.get()*scale, p);
+        }));
     Pinch::Gtk { _gesture: gesture }
 }
 
@@ -417,7 +383,10 @@ pub(super) mod quartz {
         }
         let floating: unsafe extern "C" fn(*mut c_void, *mut c_void) -> f64 =
             std::mem::transmute(objc_msgSend as *const ());
-        c.queue_zoom(c.zoom_target() * (1.0 + floating(native.cast(), data.scale)).max(0.01));
+        c.wheel_zoom(
+            c.zoom_target() * (1.0 + floating(native.cast(), data.scale)).max(0.01),
+            (x as f64, y as f64),
+        );
         gdk::ffi::GDK_FILTER_REMOVE
     }
 }

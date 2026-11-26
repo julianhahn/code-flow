@@ -5,6 +5,7 @@ mod model;
 mod pan;
 mod progress;
 mod render;
+mod zoom;
 
 use gtk::prelude::*;
 use gtk::{Orientation::Horizontal as H, Orientation::Vertical as V};
@@ -45,7 +46,9 @@ type CameraUpdate = Box<dyn FnOnce(&Rc<Canvas>)>;
 pub struct Canvas {
     pub widget: gtk::Box,
     pub scroll: gtk::ScrolledWindow,
-    board: gtk::Layout,
+    board: RefCell<gtk::Layout>,
+    preview: gtk::DrawingArea,
+    zoom_animation: zoom::ZoomAnimation,
     spec: gtk::ToggleButton,
     info: gtk::Label,
     count: gtk::Label,
@@ -69,8 +72,6 @@ pub struct Canvas {
     open: Option<OpenFile>,
     changed: RefCell<Option<Box<dyn Fn()>>>,
     zoom: Cell<f64>,
-    pending_zoom: Cell<Option<f64>>,
-    zoom_timer: RefCell<Option<glib::SourceId>>,
     drag: Cell<Option<input::Drag>>,
     pending_pan: Cell<Option<(f64, f64)>>,
     pan_queued: Cell<bool>,
@@ -83,6 +84,7 @@ pub struct Canvas {
     updating: Cell<bool>,
     hits: RefCell<Vec<Hit>>,
     hit_index: Cell<Option<usize>>,
+    search_revision: Cell<usize>,
     render_source: RefCell<Option<glib::SourceId>>,
     generation: Cell<usize>,
     camera_updates: RefCell<Vec<CameraUpdate>>,
@@ -182,13 +184,19 @@ impl Canvas {
         scroll.add(&board);
         let viewport = gtk::Overlay::new();
         viewport.add(&scroll);
+        let preview = gtk::DrawingArea::new();
+        preview.set_no_show_all(true);
+        viewport.add_overlay(&preview);
+        viewport.set_overlay_pass_through(&preview, false);
         widget.pack_start(&viewport, true, true, 0);
         let patches = files.iter().map(|f| patch_text(&f.patch)).collect();
         let natural_sizes = render::NaturalSizes::new(files.len());
         let canvas = Rc::new(Self {
             widget,
             scroll,
-            board,
+            board: RefCell::new(board),
+            preview,
+            zoom_animation: zoom::ZoomAnimation::default(),
             spec,
             info,
             count,
@@ -211,8 +219,6 @@ impl Canvas {
             open,
             changed: RefCell::default(),
             zoom: Cell::new(1.0),
-            pending_zoom: Cell::default(),
-            zoom_timer: RefCell::default(),
             drag: Cell::default(),
             pending_pan: Cell::default(),
             pan_queued: Cell::new(false),
@@ -225,6 +231,7 @@ impl Canvas {
             updating: Cell::new(false),
             hits: RefCell::default(),
             hit_index: Cell::default(),
+            search_revision: Cell::default(),
             render_source: RefCell::default(),
             generation: Cell::default(),
             camera_updates: RefCell::default(),
@@ -236,7 +243,7 @@ impl Canvas {
                     c.set_zoom(if action == 0.0 {
                         1.0
                     } else {
-                        c.zoom.get() * action
+                        c.zoom_target() * action
                     })
                 }
             });
@@ -278,7 +285,8 @@ impl Canvas {
         canvas
             .clear_button
             .connect_clicked(glib::clone!(@weak canvas => move |_| canvas.clear_selection()));
-        canvas.bind_input(&canvas.board, None);
+        canvas.bind_input(&*canvas.board.borrow(), None);
+        canvas.bind_zoom_preview();
         canvas.bind_key_pan();
         canvas.pinch.replace(Some(input::pinch(&canvas)));
         Ok(canvas)
@@ -302,12 +310,19 @@ impl Canvas {
         self.changed.replace(Some(Box::new(callback)));
     }
     pub fn toggle_viewed(self: &Rc<Self>) {
-        if let Some(i) = self.active.get() {
-            let v = !self.viewed.borrow().contains(&i);
-            self.set_viewed(i, v);
-        }
+        // Resolve the active file at dispatch. A previous V or arrow in this
+        // same burst may have advanced to a different card.
+        self.after_zoom(|c| {
+            if let Some(i) = c.active.get() {
+                let value = !c.viewed.borrow().contains(&i);
+                c.apply_viewed(i, value);
+            }
+        });
     }
     fn set_viewed(self: &Rc<Self>, i: usize, value: bool) {
+        self.after_zoom(move |c| c.apply_viewed(i, value));
+    }
+    fn apply_viewed(self: &Rc<Self>, i: usize, value: bool) {
         if let Err(e) = self.progress.set(&self.files[i], value) {
             self.count
                 .set_text(&format!("Could not save viewed marker: {e}"));
@@ -406,6 +421,17 @@ impl Canvas {
         self.search_bar.set_no_show_all(true);
     }
     fn search_changed(self: &Rc<Self>) {
+        // Typing and toggling specs while a zoom settles can supersede a
+        // search. Rebuild once for the latest query/filter on the new board.
+        let revision = self.search_revision.get().wrapping_add(1);
+        self.search_revision.set(revision);
+        self.after_zoom(move |c| {
+            if c.search_revision.get() == revision {
+                c.find_hits();
+            }
+        });
+    }
+    fn find_hits(self: &Rc<Self>) {
         let query = self.search_entry.text();
         let mut hits = Vec::new();
         if !query.is_empty() {
@@ -438,6 +464,10 @@ impl Canvas {
         self.search_next(1);
     }
     fn search_next(self: &Rc<Self>, step: i32) {
+        if self.zoom_in_flight() {
+            self.after_zoom(move |c| c.search_next(step));
+            return;
+        }
         let n = self.hits.borrow().len();
         if n == 0 {
             return;
@@ -504,9 +534,6 @@ impl Canvas {
 
 impl Drop for Canvas {
     fn drop(&mut self) {
-        if let Some(id) = self.zoom_timer.get_mut().take() {
-            id.remove();
-        }
         if let Some(id) = self.render_source.get_mut().take() {
             id.remove();
         }
