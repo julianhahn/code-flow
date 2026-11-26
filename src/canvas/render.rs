@@ -1,10 +1,12 @@
 use super::*;
 use crate::theme;
 use std::{
+    cell::OnceCell,
     collections::BTreeMap,
     time::{Duration, Instant},
 };
 
+const CARD_BORDER: f64 = 3.0;
 const PRIORITY: u32 = gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1;
 
 fn round(v: f64) -> i32 {
@@ -33,7 +35,7 @@ impl Styles {
         font.set_size(round(points * pango::SCALE as f64));
         let border = theme::provider(&format!(
             ".diff-card {{ border-style: solid; border-width: {}px; }}",
-            round(3.0 * z).max(1)
+            round(CARD_BORDER * z).max(1)
         ));
         let mut css = BTreeMap::new();
         for (bg, fg) in [
@@ -90,6 +92,130 @@ impl Styles {
     }
 }
 
+fn card_header(
+    file: &FilePatch,
+    is_viewed: bool,
+    z: f64,
+    styles: &Styles,
+) -> (gtk::Box, gtk::EventBox, gtk::CheckButton, gtk::Button) {
+    let (bg, fg) = status_colors(&file.status);
+    let header = gtk::Box::new(H, round(6.0 * z).max(1));
+    let name = file.path.rsplit('/').next().unwrap_or_default();
+    let title = styles.label(&format!("{}  {name}", file.status), bg, fg, z);
+    let tooltip = if file.old_path == file.path {
+        file.path.clone()
+    } else {
+        format!("{} → {}", file.old_path, file.path)
+    };
+    let title_event = gtk::EventBox::new();
+    title_event.add(&title);
+    title.set_tooltip_text(Some(&tooltip));
+    title_event.set_tooltip_text(Some("Click to select this file for reference analysis"));
+    header.pack_start(&title_event, true, true, 0);
+    let viewed = gtk::CheckButton::with_label("Viewed");
+    viewed.set_active(is_viewed);
+    let copy = gtk::Button::with_label("⧉");
+    copy.set_tooltip_text(Some("Copy full path"));
+    header.pack_start(&viewed, false, false, 0);
+    header.pack_start(&copy, false, false, 0);
+    styles.style(&header, bg, fg);
+    for control in [viewed.upcast_ref::<gtk::Widget>(), copy.upcast_ref()] {
+        control.set_valign(gtk::Align::Center);
+        control
+            .style_context()
+            .add_provider(&styles.controls[fg], PRIORITY + 1);
+    }
+    (header, title_event, viewed, copy)
+}
+
+fn patch_size(text: &gtk::TextView, content: &str, font: &pango::FontDescription) -> (i32, i32) {
+    let measure = text.create_pango_layout(Some(content));
+    measure.set_font_description(Some(font));
+    let (mut w, mut h) = measure.pixel_size();
+    let columns = text.create_pango_layout(Some(&"0".repeat(300)));
+    columns.set_font_description(Some(font));
+    let max = columns.pixel_size().0;
+    if w > max {
+        measure.set_width(max * pango::SCALE);
+        measure.set_wrap(pango::WrapMode::WordChar);
+        h = measure.pixel_size().1;
+        w = max;
+    }
+    (w, h)
+}
+
+// Save intrinsic 100% heights from the initial render. A file first expanded
+// at a different zoom needs just one unzoomed text measurement, not another board.
+pub(super) struct NaturalSizes {
+    folder_heights: RefCell<HashMap<String, i32>>,
+    headers: Vec<OnceCell<i32>>,
+    bodies: Vec<OnceCell<i32>>,
+    styles: OnceCell<Styles>,
+}
+
+impl NaturalSizes {
+    pub fn new(files: usize) -> Self {
+        Self {
+            folder_heights: RefCell::default(),
+            headers: vec![OnceCell::new(); files],
+            bodies: vec![OnceCell::new(); files],
+            styles: OnceCell::new(),
+        }
+    }
+
+    fn unit_styles(&self) -> &Styles {
+        self.styles.get_or_init(|| Styles::new(1.0))
+    }
+
+    fn folder_height(&self, name: &str, zoom: f64, height: i32) -> i32 {
+        let mut folders = self.folder_heights.borrow_mut();
+        if let Some(height) = folders.get(name) {
+            return *height;
+        }
+        let natural = if zoom == 1.0 {
+            height
+        } else {
+            let label = self.unit_styles().label(name, "panel", "node", 1.0);
+            label.show();
+            label.preferred_height().1
+        };
+        folders.insert(name.to_owned(), natural);
+        natural
+    }
+
+    fn card_height(
+        &self,
+        c: &Canvas,
+        i: usize,
+        header: &gtk::Box,
+        body: Option<&gtk::TextView>,
+        height: i32,
+    ) -> i32 {
+        let unit_zoom = c.zoom.get() == 1.0;
+        let header = *self.headers[i].get_or_init(|| {
+            let widget = if unit_zoom {
+                header.clone()
+            } else {
+                let (header, ..) = card_header(&c.files[i], false, 1.0, self.unit_styles());
+                header.show_all();
+                header
+            };
+            widget.preferred_height().1 + 2 * round(CARD_BORDER)
+        });
+        let Some(text) = body else {
+            return header;
+        };
+        let body = self.bodies[i].get_or_init(|| {
+            if unit_zoom {
+                height - header
+            } else {
+                patch_size(text, &c.patches[i].content, &self.unit_styles().font).1
+            }
+        });
+        header + body
+    }
+}
+
 struct Layout {
     order: Vec<(usize, usize)>,
     index: usize,
@@ -98,6 +224,8 @@ struct Layout {
     column_x: f64,
     right: f64,
     y: f64,
+    logical_y: i64,
+    slots: Vec<model::Slot>,
     bottom: f64,
     folders: HashMap<String, (f64, f64)>,
 }
@@ -131,6 +259,8 @@ impl Layout {
             column_x: 40.0 * z,
             right: 0.0,
             y: 0.0,
+            logical_y: 0,
+            slots: Vec::new(),
             bottom: 800.0 * z,
             folders: HashMap::new(),
         }
@@ -146,6 +276,7 @@ impl Layout {
             }
             self.column = Some(column);
             self.y = 85.0 * z;
+            self.logical_y = 85;
             self.right = self.column_x + 600.0 * z;
             c.put(
                 &self
@@ -176,12 +307,14 @@ impl Layout {
                 let point = (x + 12.0 * z, self.y + size.1);
                 self.folders.insert(prefix.clone(), point);
                 self.y += size.1 + 18.0 * z;
+                self.logical_y +=
+                    i64::from(c.natural_sizes.folder_height(name, z, size.1 as i32)) + 18;
                 point
             };
             parent = Some(point);
         }
         let x = self.column_x + (parts.len() - 1) as f64 * 28.0 * z;
-        let (frame, text) = c.make_card(index, &self.styles);
+        let (frame, header, text) = c.make_card(index, &self.styles);
         if let Some(origin) = parent {
             c.connector(
                 &self.styles,
@@ -192,6 +325,16 @@ impl Layout {
             );
         }
         let (w, h) = c.put(&frame, x, self.y);
+        let natural = c
+            .natural_sizes
+            .card_height(c, index, &header, text.as_ref(), h as i32);
+        self.slots.push(model::Slot {
+            file: index,
+            column,
+            top: self.logical_y,
+            bottom: self.logical_y + i64::from(natural),
+        });
+        self.logical_y += i64::from(natural) + 40;
         c.cards.borrow_mut().push(Card {
             index,
             rect: Rect { x, y: self.y, w, h },
@@ -204,7 +347,10 @@ impl Layout {
         self.index += 1;
         Some(index)
     }
-    fn finish(&self, c: &Canvas) {
+    fn finish(&mut self, c: &Canvas) {
+        c.navigation
+            .borrow_mut()
+            .set_layout(std::mem::take(&mut self.slots));
         let z = c.zoom.get();
         let x = if self.column.is_some() {
             self.right + 100.0 * z
@@ -243,7 +389,7 @@ impl Canvas {
         if let Some(id) = self.render_source.take() {
             id.remove();
         }
-        self.generation.set(self.generation.get().wrapping_add(1));
+        self.invalidate_camera_restore();
     }
     fn start_render(&self) -> Layout {
         self.cancel_render();
@@ -313,39 +459,18 @@ impl Canvas {
             self.bind_input(&line, None);
         }
     }
-    fn make_card(self: &Rc<Self>, i: usize, styles: &Styles) -> (gtk::Box, Option<gtk::TextView>) {
+    fn make_card(
+        self: &Rc<Self>,
+        i: usize,
+        styles: &Styles,
+    ) -> (gtk::Box, gtk::Box, Option<gtk::TextView>) {
         let file = &self.files[i];
-        let (bg, fg) = status_colors(&file.status);
         let z = self.zoom.get();
         let frame = gtk::Box::new(V, 0);
         theme::style(&frame, "diff-card");
         frame.style_context().add_provider(&styles.border, PRIORITY);
-        let header = gtk::Box::new(H, round(6.0 * z).max(1));
-        let name = file.path.rsplit('/').next().unwrap_or_default();
-        let title = styles.label(&format!("{}  {name}", file.status), bg, fg, z);
-        let tooltip = if file.old_path == file.path {
-            file.path.clone()
-        } else {
-            format!("{} → {}", file.old_path, file.path)
-        };
-        let title_event = gtk::EventBox::new();
-        title_event.add(&title);
-        title.set_tooltip_text(Some(&tooltip));
-        title_event.set_tooltip_text(Some("Click to select this file for reference analysis"));
-        header.pack_start(&title_event, true, true, 0);
-        let viewed = gtk::CheckButton::with_label("Viewed");
-        viewed.set_active(self.viewed.borrow().contains(&i));
-        let copy = gtk::Button::with_label("⧉");
-        copy.set_tooltip_text(Some("Copy full path"));
-        header.pack_start(&viewed, false, false, 0);
-        header.pack_start(&copy, false, false, 0);
-        styles.style(&header, bg, fg);
-        for control in [viewed.upcast_ref::<gtk::Widget>(), copy.upcast_ref()] {
-            control.set_valign(gtk::Align::Center);
-            control
-                .style_context()
-                .add_provider(&styles.controls[fg], PRIORITY + 1);
-        }
+        let (header, title_event, viewed, copy) =
+            card_header(file, self.viewed.borrow().contains(&i), z, styles);
         frame.pack_start(&header, false, false, 0);
         self.bind_input(&title_event, Some(i));
         let path = file.path.clone();
@@ -368,7 +493,7 @@ impl Canvas {
             }
         });
         if viewed.is_active() && !self.hits.borrow().iter().any(|hit| hit.file == i) {
-            return (frame, None);
+            return (frame, header, None);
         }
         let text = gtk::TextView::new();
         text.set_editable(false);
@@ -416,18 +541,7 @@ impl Canvas {
                 &buffer.iter_at_offset(h.end),
             );
         }
-        let measure = text.create_pango_layout(Some(&patch.content));
-        measure.set_font_description(Some(&styles.font));
-        let (mut w, mut h) = measure.pixel_size();
-        let columns = text.create_pango_layout(Some(&"0".repeat(300)));
-        columns.set_font_description(Some(&styles.font));
-        let max = columns.pixel_size().0;
-        if w > max {
-            measure.set_width(max * pango::SCALE);
-            measure.set_wrap(pango::WrapMode::WordChar);
-            h = measure.pixel_size().1;
-            w = max;
-        }
+        let (w, h) = patch_size(&text, &patch.content, &styles.font);
         text.set_size_request(round(540.0 * z).max(w + 24), h);
         let weak = Rc::downgrade(self);
         buffer.connect_mark_set(move |buf, _, _| {
@@ -464,6 +578,6 @@ impl Canvas {
                 });
             }
         });
-        (frame, Some(text))
+        (frame, header, Some(text))
     }
 }

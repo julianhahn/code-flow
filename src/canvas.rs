@@ -59,6 +59,8 @@ pub struct Canvas {
 
     files: Vec<FilePatch>,
     patches: Vec<PatchText>,
+    natural_sizes: render::NaturalSizes,
+    navigation: RefCell<model::Navigation>,
     paths: HashMap<String, usize>,
     progress: Progress,
     viewed: RefCell<HashSet<usize>>,
@@ -178,6 +180,7 @@ impl Canvas {
         viewport.add(&scroll);
         widget.pack_start(&viewport, true, true, 0);
         let patches = files.iter().map(|f| patch_text(&f.patch)).collect();
+        let natural_sizes = render::NaturalSizes::new(files.len());
         let canvas = Rc::new(Self {
             widget,
             scroll,
@@ -196,6 +199,8 @@ impl Canvas {
             search_count,
             files,
             patches,
+            natural_sizes,
+            navigation: RefCell::default(),
             paths,
             progress,
             viewed: RefCell::new(viewed),

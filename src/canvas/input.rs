@@ -59,8 +59,7 @@ impl Canvas {
                             c.center_on_file(&c.files[i].path, 1.0);
                             return Stop;
                         }
-                        c.active.set(Some(i));
-                        c.update_location();
+                        c.select_file(i);
                     }
                 }
                 2 => {
@@ -184,10 +183,25 @@ impl Canvas {
         self.set_zoom(self.zoom.get() * (pw / w as f64).min(ph / h as f64) * 0.98);
         self.after_layout(|c| c.pan_to((0.0, 0.0)));
     }
+    pub(super) fn invalidate_camera_restore(&self) {
+        self.generation.set(self.generation.get().wrapping_add(1));
+    }
+
+    fn select_file(&self, index: usize) {
+        self.invalidate_camera_restore();
+        self.navigation.borrow_mut().reset_anchor();
+        self.active.set(Some(index));
+        self.update_location();
+    }
+
     pub fn jump_to_file(self: &Rc<Self>, path: &str) {
         let Some(&i) = self.paths.get(path) else {
             return;
         };
+        if !self.cards.borrow().iter().any(|card| card.index == i) {
+            return;
+        }
+        self.select_file(i);
         self.after_layout(move |c| {
             let rect = c
                 .cards
@@ -202,8 +216,6 @@ impl Canvas {
                 c.board.set_size(w, h.max(end.round_ties_even() as u32));
                 a.set_upper(a.upper().max(end));
                 c.pan_to((r.x, r.y));
-                c.active.set(Some(i));
-                c.update_location();
             }
         });
     }
@@ -236,6 +248,7 @@ impl Canvas {
         let Some(&index) = self.paths.get(path) else {
             return;
         };
+        self.select_file(index);
         if self.zoom.get() < minimum_zoom {
             self.set_zoom(minimum_zoom);
             self.after_layout(move |c| c.center(index));
@@ -243,24 +256,14 @@ impl Canvas {
             self.center(index);
         }
     }
-    pub fn navigate(&self, direction: &str) -> bool {
-        let cards = self.cards.borrow();
-        let current = cards.iter().find(|c| Some(c.index) == self.active.get());
-        let target = if let Some(current) = current {
-            cards
-                .iter()
-                .filter_map(|c| Some((current.rect.score(c.rect, direction)?, c.index)))
-                .min_by_key(|(score, _)| *score)
-                .map(|(_, i)| i)
-        } else {
-            cards.first().map(|c| c.index)
+    pub fn navigate(&self, direction: &str) {
+        let Some(current) = self.active.get() else {
+            return;
         };
-        drop(cards);
+        let target = self.navigation.borrow_mut().step(current, direction);
         if let Some(index) = target {
+            self.invalidate_camera_restore();
             self.center(index);
-            true
-        } else {
-            false
         }
     }
     pub fn scroll_by(&self, direction: &str) {

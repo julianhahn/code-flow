@@ -164,30 +164,72 @@ pub struct Rect {
     pub h: f64,
 }
 
-impl Rect {
-    pub fn score(self, other: Self, direction: &str) -> Option<(bool, i64, i64)> {
-        let (start, size, orth, span, next, next_size, across, across_span) = match direction {
-            "up" | "down" => (
-                self.y, self.h, self.x, self.w, other.y, other.h, other.x, other.w,
-            ),
-            "right" | "left" => (
-                self.x, self.w, self.y, self.h, other.x, other.w, other.y, other.h,
-            ),
-            _ => return None,
-        };
-        let gap = match direction {
-            "down" | "right" if next > start => next - start - size,
-            "up" | "left" if next < start => start - next - next_size,
-            _ => return None,
-        };
-        let side = (across - orth - span)
-            .max(orth - across - across_span)
-            .max(0.0);
-        Some((
-            side > 0.0,
-            ((gap.max(0.0) + 3.0 * side) * 1000.0).round() as i64,
-            ((across - orth).abs() * 1000.0).round() as i64,
-        ))
+/// A card's vertical extent in the unzoomed folder layout. Slots are ordered
+/// by column, then by path. Camera offsets and drawn pixel bounds never enter here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Slot {
+    pub file: usize,
+    pub column: usize,
+    pub top: i64,
+    pub bottom: i64,
+}
+
+#[derive(Default)]
+pub(super) struct Navigation {
+    slots: Vec<Slot>,
+    anchor: Option<i64>,
+}
+
+impl Navigation {
+    pub fn set_layout(&mut self, slots: Vec<Slot>) {
+        if self.slots != slots {
+            self.slots = slots;
+            self.reset_anchor();
+        }
+    }
+
+    pub fn reset_anchor(&mut self) {
+        self.anchor = None;
+    }
+
+    pub fn step(&mut self, file: usize, direction: &str) -> Option<usize> {
+        let index = self.slots.iter().position(|slot| slot.file == file)?;
+        let current = self.slots[index];
+        if direction == "up" || direction == "down" {
+            let row = if direction == "up" {
+                index.checked_sub(1)?
+            } else {
+                index + 1
+            };
+            let next = self.slots.get(row).filter(|s| s.column == current.column)?;
+            self.anchor = None;
+            return Some(next.file);
+        }
+
+        let column = match direction {
+            "left" => self.slots[..index]
+                .iter()
+                .rev()
+                .find(|s| s.column < current.column),
+            "right" => self.slots[index + 1..]
+                .iter()
+                .find(|s| s.column > current.column),
+            _ => None,
+        }?
+        .column;
+        // Preserve the starting row across a tall card, or a short column, so
+        // Left/Right can retrace a route without drifting up to that card's top.
+        let y = self.anchor.unwrap_or(current.top);
+        let next = self
+            .slots
+            .iter()
+            .filter(|s| s.column == column)
+            .min_by_key(|s| {
+                let edge_distance = (s.top - y).max(y - s.bottom).max(0);
+                (edge_distance, s.top.abs_diff(y))
+            })?;
+        self.anchor = Some(y);
+        Some(next.file)
     }
 }
 
@@ -256,27 +298,70 @@ mod tests {
             .content
             .starts_with("old mode"));
     }
+    fn map(rows: &[(usize, i64, i64)]) -> Vec<Slot> {
+        rows.iter()
+            .enumerate()
+            .map(|(file, &(column, top, bottom))| Slot {
+                file,
+                column,
+                top,
+                bottom,
+            })
+            .collect()
+    }
+
     #[test]
-    fn neighbor_respects_card_edges() {
-        let a = Rect {
-            x: 0.0,
-            y: 0.0,
-            w: 100.0,
-            h: 20.0,
-        };
-        let big = Rect {
-            x: 0.0,
-            y: 40.0,
-            w: 1000.0,
-            h: 500.0,
-        };
-        let below = Rect {
-            x: 0.0,
-            y: 560.0,
-            w: 100.0,
-            h: 20.0,
-        };
-        assert!(a.score(big, "down") < a.score(below, "down"));
-        assert_eq!(a.score(big, "up"), None);
+    fn lateral_navigation_only_enters_the_adjacent_populated_column() {
+        let slots = map(&[(0, 40, 60), (0, 120, 160), (2, 300, 380), (4, 40, 900)]);
+        let mut nav = Navigation::default();
+        nav.set_layout(slots);
+        assert_eq!(nav.step(0, "right"), Some(2));
+        assert_eq!(nav.step(2, "right"), Some(3));
+        assert_eq!(nav.step(3, "right"), None);
+        assert_eq!(nav.step(0, "left"), None);
+        assert_eq!(nav.step(1, "down"), None);
+        assert_eq!(nav.step(0, "up"), None);
+        assert_eq!(nav.step(0, "down"), Some(1));
+        assert_eq!(nav.step(1, "up"), Some(0));
+    }
+
+    #[test]
+    fn horizontal_moves_retrace_the_row_through_tall_cards_and_zoom() {
+        let slots = map(&[
+            (0, 20, 80),
+            (0, 100, 160),
+            (0, 400, 550),
+            (1, 1, 1000),
+            (3, 40, 80),
+            (3, 340, 390),
+            (3, 401, 470),
+        ]);
+        let mut nav = Navigation::default();
+        nav.set_layout(slots.clone());
+        assert_eq!(nav.step(2, "right"), Some(3));
+        // Zooming and panning leave the logical layout and anchor untouched.
+        nav.set_layout(slots);
+        assert_eq!(nav.step(3, "right"), Some(6));
+        assert_eq!(nav.step(6, "left"), Some(3));
+        assert_eq!(nav.step(3, "left"), Some(2));
+        assert_eq!(nav.step(2, "up"), Some(1));
+        assert_eq!(nav.step(1, "right"), Some(3));
+        assert_eq!(nav.step(3, "right"), Some(4));
+    }
+
+    #[test]
+    fn explicit_selection_and_changed_layout_reset_the_horizontal_anchor() {
+        let slots = map(&[(0, 20, 60), (1, 0, 450), (2, 10, 25), (2, 100, 450)]);
+        let mut nav = Navigation::default();
+        nav.set_layout(slots.clone());
+        assert_eq!(nav.step(3, "left"), Some(1));
+        nav.reset_anchor(); // click or Files/search jump onto the tall card
+        assert_eq!(nav.step(1, "right"), Some(2));
+        nav.reset_anchor();
+        assert_eq!(nav.step(3, "left"), Some(1));
+        let mut collapsed = slots;
+        collapsed[1].bottom = 30;
+        nav.set_layout(collapsed);
+        assert_eq!(nav.step(1, "right"), Some(2));
     }
 }

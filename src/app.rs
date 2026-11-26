@@ -367,10 +367,10 @@ impl App {
         };
         if mods.contains(ModifierType::SHIFT_MASK) {
             board.scroll_by(dir);
-            true
         } else {
-            board.navigate(dir)
+            board.navigate(dir);
         }
+        true // Keep focus and scroll in place when the selected column ends.
     }
 
     fn map_visible(&self) -> bool {
