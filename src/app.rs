@@ -67,14 +67,6 @@ impl App {
         window.set_title("Code Flow — Review");
         window.set_widget_name("code-flow-review");
         window.set_default_size(1400, 900);
-        let icon = gdk_pixbuf::PixbufLoader::new();
-        if icon
-            .write(include_bytes!("../code-flow.svg"))
-            .and_then(|_| icon.close())
-            .is_ok()
-        {
-            window.set_icon(icon.pixbuf().as_ref());
-        }
         let outer = vbox(8);
         outer.set_margin(10);
         window.add(&outer);

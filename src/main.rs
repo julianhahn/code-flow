@@ -129,6 +129,13 @@ fn run() -> anyhow::Result<()> {
     glib::set_application_name("Code Flow");
     gtk::init().map_err(|e| anyhow::anyhow!("Could not start GTK: {e}"))?;
     gdk::set_program_class("code-flow");
+    match gdk_pixbuf::Pixbuf::from_read(&include_bytes!("../code-flow.svg")[..]) {
+        Ok(icon) => gtk::Window::set_default_icon(&icon),
+        Err(error) => {
+            eprintln!("Could not decode the bundled icon: {error}");
+            gtk::Window::set_default_icon_name("code-flow");
+        }
+    }
     match mode {
         Mode::Review => {
             theme::apply();

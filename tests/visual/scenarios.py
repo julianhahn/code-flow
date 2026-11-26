@@ -10,7 +10,7 @@ import time
 import gi
 
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk
+from gi.repository import Gdk, GdkPixbuf
 from PIL import Image, ImageChops
 
 from fixture import prepare, prepare_flow
@@ -45,6 +45,25 @@ def windows_named(title):
 
 def window_id(title=MAIN):
     return wait(title, lambda: windows_named(title))[0]
+
+
+def assert_desktop_icon(title):
+    if MODE != "compare":
+        return
+    # Read exactly what a taskbar gets from the X server, including transparency.
+    window = window_id(title)
+    props = subprocess.check_output([
+        "xprop", "-notype", "-id", window, "-len", "1048576",
+        "-f", "_NET_WM_ICON", "32c", r" = $0+\n", "WM_CLASS", "_NET_WM_ICON",
+    ], text=True).splitlines()
+    assert props[0] == 'WM_CLASS = "code-flow", "code-flow"', (title, props[0])
+    assert props[1].startswith("_NET_WM_ICON = "), title + ": missing window icon"
+    values = [int(v) for v in props[1].removeprefix("_NET_WM_ICON = ").split(", ")]
+    reference = GdkPixbuf.Pixbuf.new_from_file(str(Path(__file__).resolve().parents[2] / "code-flow.svg"))
+    size = (reference.get_width(), reference.get_height())
+    image = Image.frombytes("RGBA", size, reference.get_pixels(), "raw", "RGBA", reference.get_rowstride())
+    argb = [(a << 24) | (r << 16) | (g << 8) | b for r, g, b, a in image.getdata()]
+    assert values == [*size, *argb], title + ": taskbar icon differs from code-flow.svg"
 
 
 def click(x, y):
@@ -145,6 +164,8 @@ def wait_for_ink(description, region):
 def scenario(s):
     window_id()
     window_id(HELP)
+    assert_desktop_icon(MAIN)
+    assert_desktop_icon(HELP)
     s.capture("01-first-run-help", HELP)
     # The default button is the only blue fill in the shortcut window.
     image = s.last
@@ -212,6 +233,7 @@ def scenario(s):
 def flow_scenario(s):
     name = "Code Flow — Prototype · 100%"
     xdo("windowfocus", window_id(name))
+    assert_desktop_icon(name)
     s.capture("15-flow-evidence", name)
     xdo("mousemove", 650, 440, "keydown", "Control_L", "click", 4, "keyup", "Control_L")
     zoomed = "Code Flow — Prototype · 115%"
