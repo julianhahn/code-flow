@@ -492,18 +492,23 @@ pub fn open_in_zed(root: &Path, path: &str, line: Option<u32>, column: Option<u3
     if let Some(line) = line {
         location.push(format!(":{}:{}", line.max(1), column.unwrap_or(1).max(1)));
     }
-    let mut child = Command::new("zed")
+    let output = Command::new("zed")
         .arg(root)
         .arg(location)
-        .spawn()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
         .map_err(|e| format!("Could not open Zed: {e}"))?;
-    thread::spawn(move || {
-        if let Ok(status) = child.wait() {
-            if !status.success() {
-                eprintln!("Zed exited with {status}");
-            }
-        }
-    });
+    if !output.status.success() {
+        let diagnostic = String::from_utf8_lossy(&output.stderr);
+        let detail = diagnostic.trim();
+        return Err(if detail.is_empty() {
+            format!("Could not open Zed: {}", output.status)
+        } else {
+            format!("Could not open Zed ({}): {detail}", output.status)
+        });
+    }
     Ok(())
 }
 

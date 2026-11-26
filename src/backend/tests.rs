@@ -260,3 +260,50 @@ fn default_state_stays_in_place_and_pr_numbers_are_isolated_across_custom_reposi
     assert_ne!(first, second);
     assert_eq!(first, repository_state_dir(base, "team/first"));
 }
+
+#[test]
+fn zed_receives_absolute_source_coordinates_and_reports_launch_errors_to_the_window() {
+    if let Some(root) = env::var_os("CODE_FLOW_ZED_TEST_CHILD") {
+        let root = PathBuf::from(root);
+        open_in_zed(&root, "open me.rs", Some(0), Some(7)).unwrap();
+        let msg = open_in_zed(&root, "failure", None, None).unwrap_err();
+        assert!(msg.contains("first diagnostic"));
+        assert!(msg.contains("9"));
+        let msg = open_in_zed(&root, "../outside", None, None).unwrap_err();
+        assert!(msg.contains("not available"));
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("checkout");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("open me.rs"), "").unwrap();
+    fs::write(root.join("failure"), "").unwrap();
+    fs::write(temp.path().join("outside"), "").unwrap();
+    let fake = temp.path().join("zed");
+    fs::write(
+        &fake,
+        r#"#!/bin/sh
+case "$2" in
+    "$1/open me.rs:1:7") exit 0 ;;
+    "$1/failure") echo "first diagnostic" >&2; exit 9 ;;
+    *) exit 8 ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = env::join_paths(
+        std::iter::once(temp.path().to_path_buf())
+            .chain(env::split_paths(&env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+    let output=Command::new(env::current_exe().unwrap()).args(["--exact","backend::tests::zed_receives_absolute_source_coordinates_and_reports_launch_errors_to_the_window","--nocapture"])
+        .env("CODE_FLOW_ZED_TEST_CHILD",root).env("PATH",path).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
