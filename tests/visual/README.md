@@ -9,3 +9,12 @@ Actual screenshots and red difference overlays are written under `target/visual/
 The suite covers first-run shortcuts, dashboard, PR overview, diff map, two-axis middle drag, fit all, hidden specs, arrow-key selection, viewed cards, search, file list, saved notes, conversations, the hidden sidebar, reopened review state, a Pi RPC exchange, expanded and hidden conversations, fuzzy branch selection, branch-only overview and dirty-checkout errors. The standalone evidence viewer is checked at its initial zoom, after wheel zoom, after WASD pan, in diff overview mode and with a file patch open.
 
 For a second comparison on the native macOS Quartz backend, see the [macOS visual test](native/README.md).
+
+
+## Map navigation and Viewed
+
+Run `tests/visual/run.sh navigation` for the focused desktop test. The default comparison also runs it. It builds a temporary Git review with 123 aliased files in four populated columns and 26 saved Viewed markers. The fixture preserves folder depth, card widths, patch heights and file ordering from the reported review.
+
+The test sends native X11 mouse and key events. After each step it reads the displayed filename and full breadcrumb from GTK accessibility, finds that card’s screen bounds, and checks the blue selection border in the window pixels. It follows and reverses the same row across all four columns at Fit all, at 100% after double-clicking, and after a two-axis drag. It checks the four outer boundaries and the camera position when an arrow has no neighbor.
+
+Viewed cases cover keyboard V, the sticky control and a different card’s checkbox. They verify skipped viewed or filtered files, staying on the final file, unmarking, and quick successive V and Shift+Left inputs. Per-step captures and failures are written under `target/visual/navigation/`. Expected file identities come from the fixture. Golden recording continues to use the immutable pre-rewrite revision.

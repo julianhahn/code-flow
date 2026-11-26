@@ -289,13 +289,13 @@ def reopened_review(s, checkout):
         raise AssertionError("Opening the map overwrote uncommitted work")
 
 
-def exercise(cmd, env, run, screenshots):
+def exercise(cmd, env, run, screenshots, failure_directory=None):
     with subprocess.Popen(cmd, env=env) as app:
         try:
             run(screenshots)
         except Exception:
             if windows_named(MAIN):
-                dest = RESULTS / MODE
+                dest = failure_directory or RESULTS / MODE
                 dest.mkdir(parents=True, exist_ok=True)
                 pixels(MAIN).save(dest / "failure.png")
             for path in sorted(Path("/tmp/code-flow-logs").glob("*"))[-1:]:
@@ -323,6 +323,9 @@ def main():
         exercise(review, dict(env, VISUAL_DISCUSSIONS="1"),
                  lambda s: reopened_review(s, home / "plancraft-review"), screenshots)
         screenshots.finish()
+    if MODE == "compare":
+        from navigation import run_navigation
+        run_navigation(["/build/debug/code-flow"])
 
 
 if __name__ == "__main__":
