@@ -1,7 +1,9 @@
 """Offline PR #42, created using two real commits and an isolated review clone."""
+import hashlib
 import json
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 
 
@@ -69,7 +71,7 @@ def prepare(home):
     metadata = dict(number=42, title=TITLE,
                     body="## Purpose\n\nLet reviewers follow a document from draft to publication.",
                     url="https://github.com/example/documents/pull/42", state="OPEN", isDraft=False,
-                    baseRefName="main", headRefName="feature/publishing", headRefOid=head,
+                    baseRefName="main", baseRefOid=git("rev-parse", "main", cwd=source), headRefName="feature/publishing", headRefOid=head,
                     reviewDecision="APPROVED", changedFiles=len(PATHS), additions=12, deletions=4,
                     statusCheckRollup=[dict(status="COMPLETED", conclusion="SUCCESS")])
     (home / "pr.json").write_text(json.dumps(metadata))
@@ -94,3 +96,36 @@ else:
     gh.chmod(0o755)
     env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
     return env
+
+def prepare_flow(env):
+    # Absolute source paths appear on the flow cards. The private container makes
+    # this fixture path stable without depending on the host checkout's location.
+    root = Path("/tmp/code-flow-example")
+    source = Path(env["HOME"]) / "source"
+    subprocess.run(["git", "clone", "-q", "-b", "feature/publishing", str(source), str(root)], check=True)
+    meta = root / ".tokensave"
+    meta.mkdir()
+    (meta / "branch-meta.json").write_text(json.dumps({"branches": {"main": {"db_file": "index.sqlite"}}}))
+    with sqlite3.connect(meta / "index.sqlite") as db:
+        db.execute("CREATE TABLE nodes(id TEXT, name TEXT, kind TEXT, file_path TEXT, start_line INTEGER)")
+        db.execute("CREATE TABLE edges(source TEXT, target TEXT, kind TEXT, line INTEGER)")
+        db.execute("INSERT INTO nodes VALUES(?, ?, ?, ?, ?)", ("publish", "publish", "function", PATHS["worker"], 1))
+
+    def node(identity, key, line, title, kind, region, hint):
+        path = PATHS[key]
+        return dict(id=identity, title=title, kind=kind, region=region, hint=hint,
+                    source=dict(file=path, line=line, sha256=hashlib.sha256((root / path).read_bytes()).hexdigest()))
+
+    nodes = [node("model", "types", 1, "Read the document", "step", "browser", "Inspect the document model"),
+             node("ready", "types", 2, "Ready to publish?", "condition", "browser", "Continue when the document is ready"),
+             node("publish", "worker", 1, "Publish the document", "return", "worker", "Return the published state")]
+    edges = [{"from": a["id"], "to": b["id"], "type": kind, "origin": "agent",
+              "label": label, "evidence": [a["source"], b["source"]]}
+             for a, b, kind, label in ((nodes[0], nodes[1], "sequence", ""),
+                                      (nodes[1], nodes[2], "queue", "publish"))]
+    flow = dict(version=1, title="Document publishing", regions=[dict(id="browser", label="Document editor"),
+                 dict(id="worker", label="Publishing worker")], nodes=nodes, edges=edges,
+                edgeTypes={"sequence": {"relation": "sequence"}, "queue": {"relation": "handoff"}})
+    path = root / "review-flow.json"
+    path.write_text(json.dumps(flow))
+    return dict(env, CODE_FLOW_ROOT=str(root), CODE_FLOW_FILE=str(path), CODE_FLOW_DIFF_BASE="origin/main")

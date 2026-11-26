@@ -7,12 +7,12 @@ import tempfile
 import time
 
 import gi
+
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk
 from PIL import Image, ImageChops
 
-
-from fixture import prepare
+from fixture import prepare, prepare_flow
 
 RESULTS = Path("/results")
 GOLDENS = Path("/goldens")
@@ -83,6 +83,7 @@ class Screenshots:
         dest = RESULTS / MODE
         dest.mkdir(parents=True, exist_ok=True)
         actual.save(dest / (name + ".png"))
+        (dest / (name + ".diff.png")).unlink(missing_ok=True)
         path = GOLDENS / (name + ".png")
         if MODE == "record-legacy":
             actual.save(path)
@@ -114,6 +115,19 @@ class Screenshots:
             raise AssertionError("\n".join(self.failures))
 
 
+def frame_corner(image):
+    # The selected card's lower-right border stays visible throughout this drag.
+    # Restrict the scan to the viewport, excluding toolbar and sidebar accents.
+    left, top, right, bottom = 10, 315, 920, 895
+    panel = image.crop((left, top, right, bottom))
+    channels = ImageChops.difference(panel, Image.new("RGB", panel.size, (88, 166, 255))).split()
+    maximum = ImageChops.lighter(channels[0], ImageChops.lighter(channels[1], channels[2]))
+    rect = maximum.point(lambda value: 255 if value == 0 else 0).getbbox()
+    if rect is None:
+        raise AssertionError("The selected file has no visible blue frame")
+    return left + rect[2] - 1, top + rect[3] - 1
+
+
 def scenario(s):
     window_id()
     window_id(HELP)
@@ -137,9 +151,15 @@ def scenario(s):
     s.capture("04-diff-map")
     original = s.last
     xdo("mousemove", 790, 710, "mousedown", 2)
+    start_x, start_y = frame_corner(original)
     for x, y in ((770, 690), (720, 650), (675, 615), (620, 572)):
         xdo("mousemove", x, y)
-        time.sleep(.035)
+        expected = (start_x + x - 790, start_y + y - 710)
+        deadline = time.monotonic() + .25
+        while frame_corner(pixels(MAIN)) != expected:
+            if time.monotonic() >= deadline:
+                raise AssertionError(f"Selected card did not track drag to {expected} before mouse release")
+            time.sleep(.005)
     xdo("mouseup", 2)
     s.capture("05-middle-drag-pan")
     region = (10, 360, 920, 875)
@@ -168,32 +188,50 @@ def scenario(s):
     s.capture("13-conversations")
     click(1300, 30)
     s.capture("14-sidebar-hidden")
-    s.finish()
+
+
+def flow_scenario(s):
+    name = "Code Flow — Prototype · 100%"
+    xdo("windowfocus", window_id(name))
+    s.capture("15-flow-evidence", name)
+    xdo("mousemove", 650, 440, "keydown", "Control_L", "click", 4, "keyup", "Control_L")
+    zoomed = "Code Flow — Prototype · 115%"
+    s.capture("16-flow-zoom", zoomed)
+    xdo("key", "d", "s")
+    s.capture("17-flow-pan", zoomed)
+
+
+def exercise(cmd, env, run, screenshots):
+    with subprocess.Popen(cmd, env=env) as app:
+        try:
+            run(screenshots)
+        except Exception:
+            if windows_named(MAIN):
+                dest = RESULTS / MODE
+                dest.mkdir(parents=True, exist_ok=True)
+                pixels(MAIN).save(dest / "failure.png")
+            for path in sorted(Path("/tmp/code-flow-logs").glob("*"))[-1:]:
+                print(path.read_text()[-2500:], file=sys.stderr)
+            raise
+        finally:
+            app.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                app.wait(2)
+            if app.poll() is None:
+                app.kill()
 
 
 def main():
     with tempfile.TemporaryDirectory() as directory:
         home = Path(directory)
         env = prepare(home)
-        cmd = (["/usr/bin/python3", "/reference/review_app.py"] if MODE != "compare"
-               else ["/build/debug/code-flow"])
-        with subprocess.Popen(cmd, env=env) as app:
-            try:
-                scenario(Screenshots())
-            except Exception:
-                if windows_named(MAIN):
-                    dest = RESULTS / MODE
-                    dest.mkdir(parents=True, exist_ok=True)
-                    pixels(MAIN).save(dest / "failure.png")
-                for path in sorted(Path("/tmp/code-flow-logs").glob("*"))[-1:]:
-                    print(path.read_text()[-2500:], file=sys.stderr)
-                raise
-            finally:
-                app.terminate()
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    app.wait(2)
-                if app.poll() is None:
-                    app.kill()
+        screenshots = Screenshots()
+        legacy = MODE != "compare"
+        review = ["/usr/bin/python3", "/reference/review_app.py"] if legacy else ["/build/debug/code-flow"]
+        flow = ["/usr/bin/python3", "/reference/code-flow.py"] if legacy else ["/build/debug/code-flow", "--flow"]
+        exercise(review, env, scenario, screenshots)
+        exercise(flow, prepare_flow(env), flow_scenario, screenshots)
+        screenshots.finish()
 
 
 if __name__ == "__main__":
