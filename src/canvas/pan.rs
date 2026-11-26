@@ -58,11 +58,17 @@ fn destination(base: Point, axis: usize, sign: f64, page: f64, lower: f64, upper
     to
 }
 
+fn needs_gutter(point: Point, upper: Point, page: Point, available: Point) -> bool {
+    // GTK's trial allocation with hidden scrollbars clamps values beyond
+    // this shorter maximum. Only the final gutter-width strip is affected.
+    (0..2).any(|i| available[i] > page[i] && point[i] > (upper[i] - available[i]).max(0.0))
+}
+
 #[derive(Default)]
 pub(super) struct KeyPan {
     motion: Cell<Option<Motion>>,
     tick: RefCell<Option<gtk::TickCallbackId>>,
-    applying: Cell<bool>,
+    guarded_size: Cell<Option<(i32, i32)>>,
     generation: Cell<usize>,
 }
 
@@ -82,6 +88,7 @@ impl Canvas {
             .generation
             .set(self.key_pan.generation.get().wrapping_add(1));
         self.stop_key_pan();
+        self.release_gutters();
     }
 
     fn stop_key_pan(&self) {
@@ -91,18 +98,68 @@ impl Canvas {
         }
     }
 
+    fn update_gutters(&self, point: Point) {
+        let a = [self.scroll.hadjustment(), self.scroll.vadjustment()];
+        let size = (
+            self.scroll.allocated_width(),
+            self.scroll.allocated_height(),
+        );
+        let available = [f64::from(size.0), f64::from(size.1)];
+        let page = [a[0].page_size(), a[1].page_size()];
+        if !needs_gutter(point, [a[0].upper(), a[1].upper()], page, available) {
+            self.release_gutters();
+            return;
+        }
+        if self.key_pan.guarded_size.get().is_none() {
+            // Preserve only existing gutters. GTK can use its regular
+            // automatic scrollbar layout everywhere else on the map.
+            let bar = |occupies_space| {
+                if occupies_space {
+                    gtk::PolicyType::Always
+                } else {
+                    gtk::PolicyType::Automatic
+                }
+            };
+            self.key_pan.guarded_size.set(Some(size));
+            self.scroll
+                .set_policy(bar(available[1] > page[1]), bar(available[0] > page[0]));
+        }
+    }
+
+    fn release_gutters(&self) {
+        if self.key_pan.guarded_size.take().is_some() {
+            self.scroll
+                .set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
+        }
+    }
+
     pub(super) fn bind_key_pan(self: &Rc<Self>) {
         self.scroll
             .connect_unmap(glib::clone!(@weak self as c => move |_| c.cancel_key_pan()));
-        for adj in [self.scroll.hadjustment(), self.scroll.vadjustment()] {
-            // A native scrollbar drag, touchpad momentum or another camera
-            // action takes ownership if it changes the displayed position.
-            adj.connect_value_changed(glib::clone!(@weak self as c => move |_| {
-                if !c.key_pan.applying.get() {
-                    c.stop_key_pan();
-                }
-            }));
+        self.scroll.connect_size_allocate(glib::clone!(@weak self as c => move |_, allocation| {
+            if c.key_pan.guarded_size.get().is_some_and(|old| old != (allocation.width(), allocation.height())) {
+                c.cancel_key_pan();
+            }
+        }));
+        // GtkLayout itself adjusts values while trying scrollbar gutters.
+        // Only native input should interrupt the animation at the boundary.
+        for widget in [self.scroll.hscrollbar(), self.scroll.vscrollbar()]
+            .into_iter()
+            .flatten()
+        {
+            if let Ok(range) = widget.downcast::<gtk::Range>() {
+                range.connect_change_value(glib::clone!(@weak self as c => @default-return glib::Propagation::Proceed, move |_,_,_| {
+                    c.cancel_key_pan();
+                    glib::Propagation::Proceed
+                }));
+            }
         }
+        self.scroll.connect_scroll_event(
+            glib::clone!(@weak self as c => @default-return glib::Propagation::Proceed, move |_,_| {
+                c.cancel_key_pan();
+                glib::Propagation::Proceed
+            }),
+        );
     }
 
     pub fn scroll_by(self: &Rc<Self>, direction: &str) {
@@ -137,10 +194,16 @@ impl Canvas {
         let old = self.key_pan.motion.get();
         let base = old.map_or(from, |motion| motion.to);
         let to = destination(base, axis, sign, a.page_size(), a.lower(), a.upper());
+        // A reserved gutter lasts only while a keyboard pan approaches or
+        // rests inside the strip GTK would otherwise clamp away.
+        if self.key_pan.guarded_size.get().is_none() && self.scroll.is_mapped() {
+            self.update_gutters(to);
+        }
         if !self.animations_enabled() || !self.scroll.is_mapped() {
             self.stop_key_pan();
             adjustments[0].set_value(to[0]);
             adjustments[1].set_value(to[1]);
+            self.update_gutters(to);
             return;
         }
         if to == base {
@@ -148,6 +211,7 @@ impl Canvas {
         }
         if to == from {
             self.stop_key_pan();
+            self.update_gutters(to);
             return;
         }
 
@@ -194,13 +258,14 @@ impl Canvas {
                 .filter(|_| focused && current_page == page)
             {
                 let (point, _, done) = motion.sample(clock.frame_time());
-                c.key_pan.applying.set(true);
                 scroll.hadjustment().set_value(point[0]);
                 scroll.vadjustment().set_value(point[1]);
-                c.key_pan.applying.set(false);
                 if !done {
                     return glib::ControlFlow::Continue;
                 }
+                c.update_gutters(point);
+            } else {
+                c.release_gutters();
             }
             c.key_pan.motion.set(None);
             c.key_pan.tick.take();
@@ -270,5 +335,17 @@ mod tests {
         assert_eq!(next([310., 12.], -1.), [230., 12.]);
         assert_eq!(next([12., 30.], -1.), [10., 30.]);
         assert_eq!(destination([10., 0.], 1, 1., 500., 0., 400.), [10., 0.]);
+    }
+
+    #[test]
+    fn reserve_gutters_only_for_keyboard_targets_in_the_last_scrollbar_width() {
+        let upper = [2000., 1000.];
+        let page = [785., 585.];
+        let available = [800., 600.];
+        assert!(!needs_gutter([0., 0.], upper, page, available));
+        assert!(!needs_gutter([1200., 400.], upper, page, available));
+        assert!(needs_gutter([1205., 400.], upper, page, available));
+        assert!(needs_gutter([1200., 415.], upper, page, available));
+        assert!(!needs_gutter([1200., 400.], upper, available, available));
     }
 }
