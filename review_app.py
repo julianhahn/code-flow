@@ -13,6 +13,8 @@ import json
 import os
 from pathlib import Path
 from review_summary import checks_summary, purpose_excerpt
+import theme
+from ui import style, text_tags
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Gdk, Pango, Gio
@@ -89,21 +91,7 @@ class ReviewWindow(Gtk.Window):
         self.set_name('code-flow-review')
         self.set_wmclass('code-flow', 'code-flow')
         self.set_icon_from_file(str(Path(__file__).with_name('code-flow.svg')))
-        style = Gtk.CssProvider()
-        style.load_from_path(str(Path(__file__).with_name('review.css')))
-        Gtk.StyleContext.add_provider_for_screen(self.get_screen(), style, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        selection_style = Gtk.CssProvider()
-        selection_style.load_from_data(b'''
-            #code-flow-review textview text selection,
-            #code-flow-review textview text selection:focus,
-            #code-flow-review textview text selection:backdrop,
-            #code-flow-review entry selection {
-                background-color: #2457c5;
-                color: #ffffff;
-            }
-        ''')
-        Gtk.StyleContext.add_provider_for_screen(self.get_screen(), selection_style,
-                                                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION+2)
+        theme.apply(self.get_screen())
         self.set_default_size(1400, 900)
         self.connect('destroy', Gtk.main_quit)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=10)
@@ -145,7 +133,7 @@ class ReviewWindow(Gtk.Window):
         self.home_button.connect('clicked', self.reset_selection)
         self.home_button.hide()
         bar.pack_start(self.home_button, False, False, 0)
-        for label, callback in [('↻', self.refresh), ('Flow mode', self.flow)]:
+        for label, callback in [('↻', self.refresh), ('Sidebar', self.toggle_sidebar), ('?', self.show_help)]:
             button = Gtk.Button(label=label)
             button.connect('clicked', callback)
             bar.pack_start(button, False, False, 0)
@@ -153,12 +141,12 @@ class ReviewWindow(Gtk.Window):
         box.pack_start(bar, False, False, 0)
         self.status = Gtk.Label(label='Loading branches…', xalign=0)
         self.status.set_selectable(True)
-        self.status.get_style_context().add_class('muted')
+        style(self.status, 'muted')
         box.pack_start(self.status, False, False, 0)
         self.actions = Gtk.Box(spacing=12)
         self.actions.set_no_show_all(True)
         self.diff_button = Gtk.Button(label='Open diff map')
-        self.diff_button.get_style_context().add_class('primary')
+        style(self.diff_button, 'primary')
         self.diff_button.connect('clicked', self.toggle_review_view)
         self.github_button = Gtk.LinkButton.new_with_label('https://github.com/plancraft/plancraft', 'View on GitHub')
         self.github_button.set_no_show_all(True)
@@ -185,7 +173,7 @@ class ReviewWindow(Gtk.Window):
         split = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         split.pack1(self.views, resize=True, shrink=False)
         self.side_panel = Gtk.Notebook()
-        self.side_panel.get_style_context().add_class('review-sidebar')
+        style(self.side_panel, 'review-sidebar')
         self.side_panel.append_page(self.chat, Gtk.Label(label='Chat'))
         self.file_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         file_scroll = Gtk.ScrolledWindow()
@@ -208,6 +196,13 @@ class ReviewWindow(Gtk.Window):
         self.recent_file = Path(os.environ.get('XDG_STATE_HOME') or (Path.home() / '.local/state')) / 'code-flow' / 'recent-selections.json'
         self.recent_file.parent.mkdir(parents=True, exist_ok=True)
         self.refresh_recent()
+        self.sidebar_flag = self.recent_file.parent / 'sidebar-hidden'
+        if self.sidebar_flag.exists():
+            self.side_panel.set_no_show_all(True)  # keep show_all() from reopening it
+            self.side_panel.hide()
+        self.help_window = None
+        if not (self.recent_file.parent / 'help-seen').exists():
+            GLib.idle_add(lambda: self.show_help() or False)
         print(f'Review clone: {ROOT}')
         self.refresh(fetch=False)
 
@@ -274,6 +269,12 @@ class ReviewWindow(Gtk.Window):
             if self.views.get_visible_child_name() == 'map':
                 self.views.get_child_by_name('map').open_search()
                 return True
+        if event.keyval in (Gdk.KEY_b, Gdk.KEY_B) and event.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.META_MASK):
+            self.toggle_sidebar()
+            return True
+        if event.keyval == Gdk.KEY_question and not isinstance(self.get_focus(), (Gtk.Entry, Gtk.TextView)):
+            self.show_help()
+            return True
         arrows = {Gdk.KEY_Up: 'up', Gdk.KEY_Down: 'down', Gdk.KEY_Left: 'left', Gdk.KEY_Right: 'right'}
         if event.keyval not in (Gdk.KEY_v, Gdk.KEY_V) and event.keyval not in arrows:
             return False
@@ -286,11 +287,41 @@ class ReviewWindow(Gtk.Window):
             return False
         board = self.views.get_child_by_name('map')
         if event.keyval in arrows:
+            if event.state & Gdk.ModifierType.SHIFT_MASK:
+                board.scroll_by(arrows[event.keyval])
+                return True
             return board.navigate(arrows[event.keyval])
         if board.active_file is None:
             return False
         board.sticky_viewed.set_active(not board.sticky_viewed.get_active())
         return True
+
+    def toggle_sidebar(self, *_):
+        show = not self.side_panel.get_visible()
+        if show:
+            self.side_panel.set_no_show_all(False)
+            self.side_panel.show_all()
+        else:
+            self.side_panel.hide()
+        try:
+            if show:
+                self.sidebar_flag.unlink(missing_ok=True)
+            else:
+                self.sidebar_flag.touch()
+        except OSError:
+            log_handled_error('Could not remember the sidebar state')
+
+    def show_help(self, *_):
+        from help_dialog import build_help_window
+        if self.help_window is not None:
+            self.help_window.present()
+            return
+        self.help_window = build_help_window(self)
+        self.help_window.connect('destroy', lambda *_: setattr(self, 'help_window', None))
+        try:
+            (self.recent_file.parent / 'help-seen').touch()
+        except OSError:
+            log_handled_error('Could not remember that the help was shown')
 
     def show_conversations(self, notebook, page, index):
         if page is self.conversations:
@@ -386,7 +417,7 @@ class ReviewWindow(Gtk.Window):
                 label = Gtk.Label(label=('✓ ' if board.progress.is_viewed(file) else '○ ') + file[2], xalign=0)
                 label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
                 button = Gtk.Button()
-                button.get_style_context().add_class('file-row')
+                style(button, 'file-row')
                 button.add(label)
                 button.set_tooltip_text(file[2])
                 button.connect('clicked', lambda _, path=file[2]: board.jump_to_file(path))
@@ -424,15 +455,14 @@ class ReviewWindow(Gtk.Window):
         self.clear_canvas()
         panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, margin=16)
         panel.set_size_request(700, -1)
-        panel.get_style_context().add_class('overview-card')
+        style(panel, 'overview-card')
         panel.set_valign(Gtk.Align.START)
         self.canvas.pack_start(panel, True, True, 0)
         def label(text, *classes):
             widget = Gtk.Label(label=text, xalign=0, selectable=True)
             widget.set_line_wrap(True)
             widget.set_max_width_chars(85)
-            for name in classes:
-                widget.get_style_context().add_class(name)
+            style(widget, *classes)
             if 'badge' in classes:
                 widget.set_halign(Gtk.Align.START)
             panel.pack_start(widget, False, False, 0)
@@ -449,14 +479,14 @@ class ReviewWindow(Gtk.Window):
             label(checks, 'badge', 'good' if checks == 'Checks: no failures' else 'neutral')
             if 'changedFiles' in metadata:
                 stats = Gtk.Box(spacing=24)
-                stats.get_style_context().add_class('stats')
+                style(stats, 'stats')
                 for text, color in (
                     (f"{metadata['changedFiles']} changed files", 'stat-files'),
                     (f"+{metadata['additions']:,} added", 'stat-added'),
                     (f"−{metadata['deletions']:,} removed", 'stat-removed'),
                 ):
                     count = Gtk.Label(label=text, xalign=0, selectable=True)
-                    count.get_style_context().add_class(color)
+                    style(count, color)
                     stats.pack_start(count, False, False, 0)
                 panel.pack_start(stats, False, False, 0)
             label('PURPOSE', 'section-title')
@@ -758,9 +788,8 @@ class ReviewWindow(Gtk.Window):
         expander.remove(label)
         text = Gtk.TextView(editable=False, monospace=True)
         buffer = text.get_buffer()
-        buffer.create_tag('add', background='#d8f5dc', foreground='#143d20')
-        buffer.create_tag('remove', background='#ffe0e0', foreground='#562020')
-        buffer.create_tag('hunk', background='#daeafa', foreground='#193b60')
+        text_tags(buffer, {'add': ('add_bg', 'add_fg'), 'remove': ('del_bg', 'del_fg'),
+                           'hunk': ('hunk_bg', 'hunk_fg')})
         old_line = new_line = None
         for line in patch.splitlines():
             match = re.match(r'^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@', line)
@@ -785,8 +814,6 @@ class ReviewWindow(Gtk.Window):
         expander.show_all()
         return False
 
-    def flow(self, *_):
-        subprocess.Popen([sys.executable, str(Path(__file__).with_name('code-flow.py'))], env={**os.environ, 'CODE_FLOW_START_VIEW': 'flow'})
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 """Card controls must shrink with the map, even with the app stylesheet."""
 import time
 import unittest
+import theme
 from pathlib import Path
 
 from diff_canvas import DiffCanvas, Gtk
@@ -55,11 +56,8 @@ class CardControlTests(unittest.TestCase):
         self.addCleanup(window.destroy)
         canvas = DiffCanvas([('A', 'a.py', 'a.py', '@@ -0,0 +1 @@\n+hello')])
         window.add(canvas)
-        provider = Gtk.CssProvider()
-        provider.load_from_path(str(Path(__file__).with_name('review.css')))
         screen = window.get_screen()
-        Gtk.StyleContext.add_provider_for_screen(
-            screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        provider = theme.apply(screen)
         self.addCleanup(Gtk.StyleContext.remove_provider_for_screen, screen, provider)
         window.show_all()
         sizes = []

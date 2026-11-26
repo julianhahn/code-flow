@@ -2,7 +2,7 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
-from diff_canvas import DiffCanvas, Gdk, is_spec
+from diff_canvas import DiffCanvas, Gdk, Gtk, is_spec
 
 
 class NavigationTests(unittest.TestCase):
@@ -88,6 +88,44 @@ class NavigationTests(unittest.TestCase):
         self.assertIsNone(neighbor('down'))
         canvas.active_file = None
         self.assertEqual(neighbor('down'), 'a')
+
+    def test_arrow_keys_visit_every_card_even_when_not_centerable(self):
+        files = [('M', n, n, '@@ -1 +1 @@\n-old\n+new') for n in ('src/a.ts', 'src/b.ts', 'src/c.ts')]
+        canvas = DiffCanvas(files)
+        window = Gtk.Window()
+        window.set_default_size(900, 700)
+        window.add(canvas)
+        window.show_all()
+        try:
+            while Gtk.events_pending():
+                Gtk.main_iteration()
+            canvas.center_on_file('src/a.ts', 0)  # first card cannot be centered
+            visited = [canvas.active_file[2]]
+            for _ in range(2):
+                canvas.navigate('down')
+                visited.append(canvas.active_file[2])
+            self.assertEqual(visited, ['src/a.ts', 'src/b.ts', 'src/c.ts'])
+        finally:
+            window.destroy()
+
+    def test_scroll_by_moves_view_in_arrow_direction(self):
+        files = [('M', f'src/f{i}.ts', f'src/f{i}.ts', '@@ -1 +1 @@\n-old\n+new') for i in range(30)]
+        canvas = DiffCanvas(files)
+        window = Gtk.Window()
+        window.set_default_size(600, 300)
+        window.add(canvas)
+        window.show_all()
+        try:
+            while Gtk.events_pending():
+                Gtk.main_iteration()
+            vertical = canvas.scroll.get_vadjustment()
+            before = vertical.get_value()
+            canvas.scroll_by('down')
+            self.assertGreater(vertical.get_value(), before)
+            canvas.scroll_by('up')
+            self.assertAlmostEqual(vertical.get_value(), before, delta=1)
+        finally:
+            window.destroy()
 
     def test_first_populated_column_starts_at_left_edge(self):
         canvas = DiffCanvas([('M', 'a.py', 'a.py', '@@ -1 +1 @@\n-old\n+new')])

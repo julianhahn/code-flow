@@ -3,6 +3,7 @@ import threading
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Pango, Gdk
+from ui import style
 from pi_chat import PiChat
 
 
@@ -25,7 +26,7 @@ class ChatPanel(Gtk.Box):
         self.pack_start(header, False, False, 0)
         self.model_label = Gtk.Label(label='Model / effort: checked when sending', xalign=0)
         self.model_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        self.model_label.get_style_context().add_class('muted')
+        style(self.model_label, 'muted')
         self.pack_start(self.model_label, False, False, 0)
         self.context_label = Gtk.Label(label='Select a PR, then open its diff map.', xalign=0)
         self.context_label.set_line_wrap(True)
@@ -139,7 +140,7 @@ class ChatPanel(Gtk.Box):
         if label is None:
             label = Gtk.Label(xalign=0, selectable=True)
             label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-            label.get_style_context().add_class('muted')
+            style(label, 'muted')
             card.pack_start(label, False, False, 0)
             card.runtime_label = label
         text = self.runtime_text(runtime)
@@ -150,10 +151,10 @@ class ChatPanel(Gtk.Box):
     def message_card(self, role, text='', context=''):
         user = role == 'user'
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=2)
-        card.get_style_context().add_class('chat-user' if user else 'chat-agent')
+        style(card, 'chat-user' if user else 'chat-agent')
         heading = Gtk.Label(label=('You' if user else 'Agent') + (' · ' + context if context else ''), xalign=0)
         heading.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        heading.get_style_context().add_class('chat-role')
+        style(heading, 'chat-role')
         card.pack_start(heading, False, False, 0)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         card.pack_start(body, False, False, 0)
@@ -184,7 +185,7 @@ class ChatPanel(Gtk.Box):
         for is_code, language, content in blocks:
             if is_code:
                 block = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-                block.get_style_context().add_class('chat-code')
+                style(block, 'chat-code')
                 bar = Gtk.Box(spacing=8)
                 bar.pack_start(Gtk.Label(label=language or 'Code', xalign=0), True, True, 0)
                 copy = Gtk.Button(label='Copy')
@@ -192,7 +193,7 @@ class ChatPanel(Gtk.Box):
                 bar.pack_end(copy, False, False, 0)
                 block.pack_start(bar, False, False, 0)
                 label = Gtk.Label(label=content.rstrip('\n'), xalign=0, selectable=True)
-                label.get_style_context().add_class('code-text')
+                style(label, 'code-text')
                 block.pack_start(label, False, False, 0)
                 scroll = Gtk.ScrolledWindow()
                 scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
