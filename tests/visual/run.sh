@@ -9,7 +9,7 @@ reference=$(mktemp -d)
 trap 'rm -rf "$reference"' EXIT
 if [[ "$mode" != compare ]]; then git -C "$root" archive "$baseline" | tar -x -C "$reference"; fi
 docker build -q -f "$root/tests/visual/Dockerfile" -t code-flow-visual "$root/tests/visual"
-mkdir -p "$root/target/visual"
+mkdir -p "$root/target/visual/$mode"
 if [[ "$mode" == compare ]]; then
     docker run --rm -v "$root:/work:ro" -v code-flow-visual-build:/build \
         -v code-flow-visual-registry:/usr/local/cargo/registry \

@@ -27,7 +27,7 @@ def xdo(*args):
 
 
 def wait(description, test):
-    deadline = time.monotonic() + 12
+    deadline = time.monotonic() + 25
     while time.monotonic() < deadline:
         result = test()
         if result:
@@ -62,10 +62,9 @@ def pixels(title):
     return Image.frombytes("RGB", (w, h), frame.get_pixels(), "raw", "RGB", frame.get_rowstride())
 
 
-def mismatch_mask(expected, actual):
-    # Ignore at most 3 channel levels of rasterization noise.
+def mismatch_mask(expected, actual, tolerance=0):
     r, g, b = ImageChops.difference(expected, actual).split()
-    return ImageChops.lighter(r, ImageChops.lighter(g, b)).point(lambda v: 255 if v > 3 else 0)
+    return ImageChops.lighter(r, ImageChops.lighter(g, b)).point(lambda v: 255 if v > tolerance else 0)
 
 
 class Screenshots:
@@ -98,9 +97,11 @@ class Screenshots:
         if expected.size != actual.size:
             self.failures.append(f"{name}: size {actual.size}, expected {expected.size}")
             return
-        mask = mismatch_mask(expected, actual)
+        # Subpixel interpolation differs by one RGB level at 115% in the flow viewer.
+        tolerance = 1 if name in ("16-flow-zoom", "17-flow-pan") else 0
+        mask = mismatch_mask(expected, actual, tolerance)
         changed = mask.histogram()[255]
-        if changed > 40:
+        if changed:
             # Highlight all changed pixels on a dimmed copy of the captured screen.
             overlay = Image.blend(actual, Image.new("RGB", actual.size), .58)
             overlay.paste((255, 65, 91), mask=mask)
@@ -125,8 +126,20 @@ def frame_corner(image):
     maximum = ImageChops.lighter(channels[0], ImageChops.lighter(channels[1], channels[2]))
     rect = maximum.point(lambda value: 255 if value == 0 else 0).getbbox()
     if rect is None:
-        raise AssertionError("The selected file has no visible blue frame")
+        return None
     return left + rect[2] - 1, top + rect[3] - 1
+
+
+def open_map():
+    click(85, 96)
+    wait("the selected file's blue frame on the finished diff map",
+         lambda: frame_corner(pixels(MAIN)))
+
+
+def wait_for_ink(description, region):
+    def painted():
+        return any(low != high for low, high in pixels(MAIN).crop(region).getextrema())
+    wait(description, painted)
 
 
 def scenario(s):
@@ -146,13 +159,16 @@ def scenario(s):
     xdo("windowfocus", window_id())
     s.capture("02-dashboard")
     click(478, 148)  # recent offline PR
+    wait("Open diff map button", lambda: pixels(MAIN).getpixel((20, 90)) == (31, 111, 235))
     s.capture("03-pr-overview")
-    click(85, 96)  # Open diff map
-    time.sleep(.7)
+    open_map()
     s.capture("04-diff-map")
     original = s.last
     xdo("mousemove", 790, 710, "mousedown", 2)
-    start_x, start_y = frame_corner(original)
+    corner = frame_corner(original)
+    if corner is None:
+        raise AssertionError("The selected file has no visible blue frame")
+    start_x, start_y = corner
     for x, y in ((770, 690), (720, 650), (675, 615), (620, 572)):
         xdo("mousemove", x, y)
         expected = (start_x + x - 790, start_y + y - 710)
@@ -186,6 +202,8 @@ def scenario(s):
     xdo("mousemove", 1110, 435, "click", 1, "type", "Check the publication status.")
     s.capture("12-notes")
     click(1160, 150)
+    # The completed count extends past the short loading message.
+    wait_for_ink("completed conversation count", (1255, 226, 1320, 244))
     s.capture("13-conversations")
     click(1300, 30)
     s.capture("14-sidebar-hidden")
@@ -212,17 +230,19 @@ def reopened_review(s, checkout):
     click(1300, 30)  # reopen the sidebar hidden in the previous session
     time.sleep(.15)
     click(478, 148)
-    time.sleep(.45)
-    click(85, 96)
-    time.sleep(.7)
+    wait("Open diff map button", lambda: pixels(MAIN).getpixel((20, 90)) == (31, 111, 235))
+    open_map()
     click(1110, 780)
     xdo("type", "What changed?")
     xdo("key", "Return")
+    chats = checkout.parent / "state" / "code-flow" / "chats"
+    wait("the offline Pi exchange to settle",
+         lambda: any('"assistant"' in path.read_text() for path in chats.glob("*/conversation.jsonl")))
     s.capture("21-pi-chat")
     click(1270, 150)
     s.capture("22-persisted-notes")
     click(1160, 150)
-    time.sleep(.35)
+    wait_for_ink("discussion disclosure arrow", (972, 251, 989, 266))
     click(979, 260)
     s.capture("23-discussion")
     click(1348, 280)
@@ -268,6 +288,7 @@ def exercise(cmd, env, run, screenshots):
 
 
 def main():
+    (RESULTS / MODE / "failure.png").unlink(missing_ok=True)
     with tempfile.TemporaryDirectory() as directory:
         home = Path(directory)
         env = prepare(home)
