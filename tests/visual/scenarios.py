@@ -1,0 +1,200 @@
+"""Drive the shipping app on X11 and compare complete window pixels with pre-port goldens."""
+import contextlib
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+
+import gi
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk
+from PIL import Image, ImageChops
+
+
+from fixture import prepare
+
+RESULTS = Path("/results")
+GOLDENS = Path("/goldens")
+MODE = sys.argv[1]
+MAIN = "Code Flow — Review"
+HELP = "Code Flow — Shortcuts"
+
+
+def xdo(*args):
+    return subprocess.check_output(["xdotool", *map(str, args)], text=True).strip()
+
+
+def wait(description, test):
+    deadline = time.monotonic() + 12
+    while time.monotonic() < deadline:
+        result = test()
+        if result:
+            return result
+        time.sleep(.08)
+    raise AssertionError("Timed out waiting for " + description)
+
+
+def windows_named(title):
+    try:
+        return xdo("search", "--onlyvisible", "--name", "^" + title + "$").splitlines()
+    except subprocess.CalledProcessError:
+        return []
+
+
+def window_id(title=MAIN):
+    return wait(title, lambda: windows_named(title))[0]
+
+
+def click(x, y):
+    xdo("mousemove", x, y, "click", 1)
+
+
+def pixels(title):
+    # Capture the real window from the X server, including native child windows.
+    win = window_id(title)
+    geometry = dict(line.split("=", 1) for line in
+                    xdo("getwindowgeometry", "--shell", win).splitlines() if "=" in line)
+    x, y, w, h = (int(geometry[key]) for key in ("X", "Y", "WIDTH", "HEIGHT"))
+    root = Gdk.get_default_root_window()
+    frame = Gdk.pixbuf_get_from_window(root, x, y, w, h)
+    return Image.frombytes("RGB", (w, h), frame.get_pixels(), "raw", "RGB", frame.get_rowstride())
+
+
+def mismatch_mask(expected, actual):
+    # Ignore at most 3 channel levels of rasterization noise.
+    r, g, b = ImageChops.difference(expected, actual).split()
+    return ImageChops.lighter(r, ImageChops.lighter(g, b)).point(lambda v: 255 if v > 3 else 0)
+
+
+class Screenshots:
+    def __init__(self):
+        self.failures = []
+        self.states = []
+        self.last = None
+
+    def capture(self, name, title=MAIN):
+        # Keep hover highlights, tooltips and insertion cursor blinking deterministic.
+        xdo("mousemove", 1599, 1199)
+        time.sleep(.55)
+        actual = pixels(title)
+        self.last = actual
+        self.states.append(name)
+        dest = RESULTS / MODE
+        dest.mkdir(parents=True, exist_ok=True)
+        actual.save(dest / (name + ".png"))
+        path = GOLDENS / (name + ".png")
+        if MODE == "record-legacy":
+            actual.save(path)
+            print("recorded", name, actual.size)
+            return
+        if not path.exists():
+            self.failures.append(name + ": missing reference")
+            return
+        with Image.open(path) as original:
+            expected = original.convert("RGB")
+        if expected.size != actual.size:
+            self.failures.append(f"{name}: size {actual.size}, expected {expected.size}")
+            return
+        mask = mismatch_mask(expected, actual)
+        changed = mask.histogram()[255]
+        if changed > 40:
+            # Highlight all changed pixels on a dimmed copy of the captured screen.
+            overlay = Image.blend(actual, Image.new("RGB", actual.size), .58)
+            overlay.paste((255, 65, 91), mask=mask)
+            overlay.save(dest / (name + ".diff.png"))
+            self.failures.append(f"{name}: {changed:,} changed pixels ({changed / (actual.width * actual.height):.2%})")
+        print(name, changed, "changed pixels")
+
+    def finish(self):
+        expected_states = {path.stem for path in GOLDENS.glob("*.png")}
+        if expected_states != set(self.states):
+            self.failures.append("Captured states differ from goldens: " + str(expected_states ^ set(self.states)))
+        if self.failures:
+            raise AssertionError("\n".join(self.failures))
+
+
+def scenario(s):
+    window_id()
+    window_id(HELP)
+    s.capture("01-first-run-help", HELP)
+    # The default button is the only blue fill in the shortcut window.
+    image = s.last
+    accent = (31, 111, 235)
+    points = [(x, y) for y in range(0, image.height, 3) for x in range(0, image.width, 3)
+              if image.getpixel((x, y)) == accent]
+    if not points:
+        raise AssertionError("Cannot find Got it button in shortcut window")
+    xdo("mousemove", "--window", window_id(HELP),
+        sum(x for x, _ in points) // len(points), sum(y for _, y in points) // len(points), "click", 1)
+    wait("shortcut window to close", lambda: not windows_named(HELP))
+    xdo("windowfocus", window_id())
+    s.capture("02-dashboard")
+    click(478, 148)  # recent offline PR
+    s.capture("03-pr-overview")
+    click(85, 96)  # Open diff map
+    time.sleep(.7)
+    s.capture("04-diff-map")
+    original = s.last
+    xdo("mousemove", 790, 710, "mousedown", 2)
+    for x, y in ((770, 690), (720, 650), (675, 615), (620, 572)):
+        xdo("mousemove", x, y)
+        time.sleep(.035)
+    xdo("mouseup", 2)
+    s.capture("05-middle-drag-pan")
+    region = (10, 360, 920, 875)
+    if mismatch_mask(original.crop(region), s.last.crop(region)).histogram()[255] < 1000:
+        raise AssertionError("Middle drag did not move the rendered map")
+    click(238, 145)
+    s.capture("06-fit-all")
+    click(340, 145)
+    s.capture("07-hide-specs")
+    click(156, 145)
+    xdo("key", "Down")
+    s.capture("08-arrow-navigation")
+    xdo("key", "v")
+    s.capture("09-viewed")
+    xdo("key", "ctrl+f")
+    xdo("type", "publish")
+    s.capture("10-search")
+    xdo("key", "Escape")
+    click(1060, 150)
+    s.capture("11-files")
+    click(1270, 150)
+    # Enter text through the actual editor.
+    xdo("mousemove", 1110, 435, "click", 1, "type", "Check the publication status.")
+    s.capture("12-notes")
+    click(1160, 150)
+    s.capture("13-conversations")
+    click(1300, 30)
+    s.capture("14-sidebar-hidden")
+    s.finish()
+
+
+def main():
+    with tempfile.TemporaryDirectory() as directory:
+        home = Path(directory)
+        env = prepare(home)
+        cmd = (["/usr/bin/python3", "/reference/review_app.py"] if MODE != "compare"
+               else ["/build/debug/code-flow"])
+        with subprocess.Popen(cmd, env=env) as app:
+            try:
+                scenario(Screenshots())
+            except Exception:
+                if windows_named(MAIN):
+                    dest = RESULTS / MODE
+                    dest.mkdir(parents=True, exist_ok=True)
+                    pixels(MAIN).save(dest / "failure.png")
+                for path in sorted(Path("/tmp/code-flow-logs").glob("*"))[-1:]:
+                    print(path.read_text()[-2500:], file=sys.stderr)
+                raise
+            finally:
+                app.terminate()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    app.wait(2)
+                if app.poll() is None:
+                    app.kill()
+
+
+if __name__ == "__main__":
+    main()
