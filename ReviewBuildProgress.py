@@ -3,6 +3,7 @@ import gi
 
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Pango
+from ui import style
 from ReviewBuild import ReviewBuild
 
 
@@ -16,7 +17,7 @@ class ReviewBuildProgress(Gtk.Box):
         self.active = False
         self.cancel, self.back = cancel, back
         self.title = Gtk.Label(label='Building diff map', xalign=0)
-        self.title.get_style_context().add_class('review-title')
+        style(self.title, 'review-title')
         self.pack_start(self.title, False, False, 0)
         self.bar = Gtk.ProgressBar(show_text=True)
         self.bar.set_tooltip_text('Progress through the build steps, not an estimate of remaining time.')

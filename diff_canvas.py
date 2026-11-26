@@ -7,10 +7,10 @@ from pathlib import PurePosixPath
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, Pango, GLib
+from theme import T
+from ui import status_colors, style as add_style, text_tags
 
 COLUMNS = ('DBTypes', 'Frontend', 'Shared', 'Backend', 'Other')
-COLORS = {'A': ('#b9efcc', '#12572e'), 'D': ('#ffc4c4', '#791e28'),
-          'M': ('#ffe8a3', '#674700')}
 
 FRONTEND_ENTRYPOINTS = {
     'app', 'browser', 'mobile', 'public-pages', 'share-page',
@@ -156,7 +156,7 @@ class DiffCanvas(Gtk.Box):
         labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.path_label = Gtk.Label(label='Move to a file to see its path', xalign=0, selectable=True)
         self.path_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        self.path_label.get_style_context().add_class('muted')
+        add_style(self.path_label, 'muted')
         self.file_label = Gtk.Label(xalign=0, selectable=True)
         labels.pack_start(self.path_label, False, False, 0)
         labels.pack_start(self.file_label, False, False, 0)
@@ -183,9 +183,6 @@ class DiffCanvas(Gtk.Box):
         self.bind_events(self.board)
         from install_pinch_zoom import install_pinch_zoom
         self.pinch = install_pinch_zoom(self)
-        for adjustment in (self.scroll.get_hadjustment(), self.scroll.get_vadjustment()):
-            adjustment.connect('value-changed', self.update_location)
-            adjustment.connect('changed', self.update_location)
         if not defer_render:
             self.render()
 
@@ -281,26 +278,17 @@ class DiffCanvas(Gtk.Box):
     def update_location(self, *_):
         if self.rendering or getattr(self, 'destroyed', False):
             return
-        horizontal, vertical = self.scroll.get_hadjustment(), self.scroll.get_vadjustment()
-        left, top = horizontal.get_value(), vertical.get_value()
-        right, bottom = left + horizontal.get_page_size(), top + vertical.get_page_size()
-        center_x, center_y = (left + right) / 2, (top + bottom) / 2
-        visible = []
-        for file, x, y, width, height in self.card_positions:
-            overlap = min(right, x + width) - max(left, x)
-            if overlap > 0 and y < bottom and y + height > top:
-                # Distance to the card edges, not its midpoint: a huge file
-                # containing the viewport center should still win.
-                dx = max(x - center_x, center_x - (x + width), 0)
-                dy = max(y - center_y, center_y - (y + height), 0)
-                visible.append((dx * dx + dy * dy, -overlap, x, file))
-        self.active_file = min(visible, key=lambda item: item[:3])[3] if visible else None
+        # The active card is chosen by the user (arrow keys or a click), never by what is
+        # under the viewport center. Keep it across re-renders; default to the first card.
+        path = self.active_file[2] if self.active_file else None
+        self.active_file = (next((f for f, *_ in self.card_positions if f[2] == path), None)
+                            or (self.card_positions[0][0] if self.card_positions else None))
         focused = self.cards.get(self.active_file[2]) if self.active_file else None
         if focused is not self.focused_card:
             if self.focused_card is not None:
                 self.focused_card.get_style_context().remove_class('focused-card')
             if focused is not None:
-                focused.get_style_context().add_class('focused-card')
+                add_style(focused, 'focused-card')
             self.focused_card = focused
         self.sticky_viewed.handler_block(self.sticky_handler)
         if self.active_file:
@@ -310,7 +298,7 @@ class DiffCanvas(Gtk.Box):
             self.file_label.set_text(path.name)
             self.sticky_viewed.set_active(self.progress.is_viewed(self.active_file))
         else:
-            self.path_label.set_text('No file in view')
+            self.path_label.set_text('No file selected')
             self.path_label.set_tooltip_text(None)
             self.file_label.set_text('')
             self.sticky_viewed.set_active(False)
@@ -320,6 +308,12 @@ class DiffCanvas(Gtk.Box):
             self.update_reference_output()
         self.open_file_button.set_sensitive(bool(
             self.open_file and self.active_file and not self.active_file[0].startswith('D')))
+
+    def set_active(self, path):
+        file = next((f for f, *_ in self.card_positions if f[2] == path), None)
+        if file is not None and file is not self.active_file:
+            self.active_file = file
+            self.update_location()
 
     def open_focused_file(self, *_):
         if self.open_file and self.active_file and not self.active_file[0].startswith('D'):
@@ -379,6 +373,7 @@ class DiffCanvas(Gtk.Box):
                 vertical.set_upper(max(vertical.get_upper(), y + vertical.get_page_size()))
                 horizontal.set_value(x)
                 vertical.set_value(y)
+                self.active_file = file
                 self.update_location()
                 break
             return False
@@ -420,6 +415,7 @@ class DiffCanvas(Gtk.Box):
                     page = adjustment.get_page_size()
                     # A card taller than the window starts at its header.
                     adjustment.set_value(max(0, start - 20 if size > page else start + size/2 - page/2))
+                self.active_file = file
                 self.update_location()
                 break
             return False
@@ -438,20 +434,36 @@ class DiffCanvas(Gtk.Box):
         if current is None:
             return positions[0][0][2]
         _, x, y, width, height = current
-        center_x, center_y = x + width/2, y + height/2
         best = None
         for file, x2, y2, width2, height2 in positions:
             if file[2] == current[0][2]:
                 continue
-            dx, dy = x2 + width2/2 - center_x, y2 + height2/2 - center_y
-            along, across = {'down': (dy, dx), 'up': (-dy, dx),
-                             'right': (dx, dy), 'left': (-dx, dy)}[key]
-            if along <= 0:
+            # Compare card edges, never centers: a wide or tall card has a center far from
+            # its edges and would otherwise lose to a small card behind it.
+            if key in ('down', 'up'):
+                start1, end1, start2, end2 = y, y + height, y2, y2 + height2
+                side1, side_end1, side2, side_end2 = x, x + width, x2, x2 + width2
+                forward = start2 > start1 if key == 'down' else start2 < start1
+                gap = start2 - end1 if key == 'down' else start1 - end2
+            else:
+                start1, end1, start2, end2 = x, x + width, x2, x2 + width2
+                side1, side_end1, side2, side_end2 = y, y + height, y2, y2 + height2
+                forward = start2 > start1 if key == 'right' else start2 < start1
+                gap = start2 - end1 if key == 'right' else start1 - end2
+            if not forward:
                 continue
-            score = along + 2*abs(across)
+            across = max(side2 - side_end1, side1 - side_end2, 0)  # 0 when the cards overlap sideways
+            # Same row/column first, then the closest one; ties go to the one aligned nearest.
+            score = (across > 0, max(gap, 0) + 3 * across, abs(side2 - side1))
             if best is None or score < best[0]:
                 best = (score, file[2])
         return best[1] if best else None
+
+    def scroll_by(self, key, fraction=0.4):
+        """Scroll the map a fraction of the window in an arrow direction (Shift + arrow)."""
+        adjustment, sign = {'up': (self.scroll.get_vadjustment(), -1), 'down': (self.scroll.get_vadjustment(), 1),
+                            'left': (self.scroll.get_hadjustment(), -1), 'right': (self.scroll.get_hadjustment(), 1)}[key]
+        adjustment.set_value(adjustment.get_value() + sign * fraction * adjustment.get_page_size())
 
     def navigate(self, key):
         """Jump to the next card in an arrow direction, keeping the zoom and centering it."""
@@ -472,6 +484,11 @@ class DiffCanvas(Gtk.Box):
                     return True
                 return False
             widget.connect('button-press-event', double_click)
+            def select(_, event):
+                if event.button == 1:
+                    self.set_active(path)
+                return False  # let text selection and buttons keep working
+            widget.connect('button-press-event', select)
         widget.connect('button-press-event', self.press)
         widget.connect('button-release-event', self.release)
         widget.connect('motion-notify-event', self.motion)
@@ -549,7 +566,7 @@ class DiffCanvas(Gtk.Box):
         css.load_from_data(f'* {{ background-color: {background}; color: {foreground}; font-size: {max(3, 11*self.zoom)}pt; }}'.encode())
         widget.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION+1)
 
-    def label(self, text, bg='#e4e9f2', fg='#26334a'):
+    def label(self, text, bg=T['panel'], fg=T['node']):
         label = Gtk.Label(label=text, xalign=0)
         label.set_margin_start(max(2, round(8*self.zoom)))
         label.set_margin_end(max(2, round(8*self.zoom)))
@@ -574,10 +591,9 @@ class DiffCanvas(Gtk.Box):
             self.folder_widgets.append((line, column, prefix))
 
     def card(self, status, old, path, patch):
-        key = status[0] if status[0] in COLORS else 'M'
-        bg, fg = COLORS[key]
+        bg, fg = status_colors(status)
         frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        frame.get_style_context().add_class('diff-card')
+        add_style(frame, 'diff-card')
         frame.get_style_context().add_provider(self.card_style, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION+1)
         self.cards[path] = frame
         header = Gtk.Box(spacing=6)
@@ -639,21 +655,20 @@ class DiffCanvas(Gtk.Box):
             return frame, fg
         text = Gtk.TextView(editable=False, monospace=True, cursor_visible=False)
         text.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.style(text, '#f7f9fc', '#253247')
+        self.style(text, T['bg'], T['text_dim'])
         font = Pango.FontDescription('Monospace')
         font.set_size(round(max(3, 11*self.zoom)*Pango.SCALE))
         text.override_font(font)
         buffer = text.get_buffer()
         buffer.create_tag('font', font_desc=font)
-        for name, background, foreground in [('add','#c6efd2','#114a25'), ('del','#ffd0d0','#771a25'),
-                                               ('context','#f7f9fc','#253247'), ('hunk','#e1e9fa','#344c77')]:
-            buffer.create_tag(name, paragraph_background=background, foreground=foreground)
+        text_tags(buffer, {'add': ('add_bg', 'add_fg'), 'del': ('del_bg', 'del_fg'),
+                           'context': ('bg', 'text_dim'), 'hunk': ('hunk_bg', 'hunk_fg')})
         lines = patch_lines(patch)
         content = '\n'.join(line for _, line in lines)
         for index, (kind, line) in enumerate(lines):
             buffer.insert_with_tags_by_name(buffer.get_end_iter(), line + ('\n' if index < len(lines)-1 else ''), kind, 'font')
-        buffer.create_tag('search-hit', background='#ffe69a', foreground='#202c42')
-        buffer.create_tag('search-current', background='#ffb84d', foreground='#202c42')
+        buffer.create_tag('search-hit', background=T['hit_bg'], foreground=T['hit_fg'])
+        buffer.create_tag('search-current', background=T['current_bg'], foreground=T['current_fg'])
         for hit_path, start, end in self.search_hits:
             if hit_path == path:
                 buffer.apply_tag_by_name('search-hit', buffer.get_iter_at_offset(start), buffer.get_iter_at_offset(end))
@@ -745,9 +760,7 @@ class DiffCanvas(Gtk.Box):
 
     def _render_steps(self):
         self.card_style.load_from_data(f'''
-            .diff-card {{ border: {max(1, round(3*self.zoom))}px solid transparent; }}
-            .diff-card.focused-card {{ border-color: #365bd6; }}
-            .diff-card.dependency-selected {{ border-color: #862eb8; }}
+            .diff-card {{ border-style: solid; border-width: {max(1, round(3*self.zoom))}px; }}
         '''.encode())
         self.rendering = True
         self.focused_card = None
@@ -777,7 +790,7 @@ class DiffCanvas(Gtk.Box):
                         node = self.label(parts[depth-1])
                         node.set_tooltip_text('/'.join(prefix))
                         if prefix[:-1] in folders:
-                            self.connector(folders[prefix[:-1]], x, y+10*z, '#9daac0', column, '/'.join(prefix))
+                            self.connector(folders[prefix[:-1]], x, y+10*z, T['connector'], column, '/'.join(prefix))
                         _, h = self.put(node, x, y)
                         self.folder_widgets.append((node, column, '/'.join(prefix)))
                         folders[prefix] = (x+12*z, y+h)

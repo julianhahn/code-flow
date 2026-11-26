@@ -8,6 +8,7 @@ from pathlib import Path
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Gdk, Pango
+from ui import style
 
 
 class Notes(Gtk.Box):
@@ -38,7 +39,7 @@ class Notes(Gtk.Box):
         self.pack_start(self.toolbar, False, False, 0)
         self.message = Gtk.Label(label='Select a PR to write notes.', xalign=0)
         self.message.set_line_wrap(True)
-        self.message.get_style_context().add_class('muted')
+        style(self.message, 'muted')
         self.editor = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
         for setter in (self.editor.set_left_margin, self.editor.set_right_margin,
                        self.editor.set_top_margin, self.editor.set_bottom_margin):

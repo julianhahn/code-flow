@@ -45,6 +45,59 @@ class OverviewTests(unittest.TestCase):
             self.assertFalse(ReviewWindow.review_key(state, None, event))
         self.assertEqual(board.navigate.call_count, 1)
 
+    def test_shift_arrow_scrolls_instead_of_jumping_cards(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from review_app import Gdk
+        board = Mock()
+        state = Mock()
+        state.views.get_visible_child_name.return_value = 'map'
+        state.views.get_child_by_name.return_value = board
+        state.get_focus.return_value = None
+        event = SimpleNamespace(keyval=Gdk.KEY_Right, state=Gdk.ModifierType.SHIFT_MASK)
+        self.assertTrue(ReviewWindow.review_key(state, None, event))
+        board.scroll_by.assert_called_once_with('right')
+        board.navigate.assert_not_called()
+
+    def test_sidebar_toggles_with_button_and_ctrl_b(self):
+        from types import SimpleNamespace
+        from review_app import Gdk
+        self.assertTrue(self.window.side_panel.get_visible())
+        self.window.toggle_sidebar()
+        self.assertFalse(self.window.side_panel.get_visible())
+        event = SimpleNamespace(keyval=Gdk.KEY_b, state=Gdk.ModifierType.CONTROL_MASK)
+        self.assertTrue(self.window.review_key(None, event))
+        self.assertTrue(self.window.side_panel.get_visible())
+
+    def test_sidebar_state_survives_restart(self):
+        self.window.toggle_sidebar()  # hide
+        with patch.object(ReviewWindow, 'refresh'):
+            second = ReviewWindow()
+        self.addCleanup(second.hide)
+        second.show_all()
+        self.assertFalse(second.side_panel.get_visible())
+        second.toggle_sidebar()  # show again, with working children
+        self.assertTrue(second.side_panel.get_visible())
+        self.assertTrue(second.chat.get_visible())
+        with patch.object(ReviewWindow, 'refresh'):
+            third = ReviewWindow()
+        self.addCleanup(third.hide)
+        third.show_all()
+        self.assertTrue(third.side_panel.get_visible())
+
+    def test_question_mark_opens_help_but_not_while_typing(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from review_app import Gdk
+        state = Mock()
+        event = SimpleNamespace(keyval=Gdk.KEY_question, state=Gdk.ModifierType.SHIFT_MASK)
+        state.get_focus.return_value = None
+        self.assertTrue(ReviewWindow.review_key(state, None, event))
+        state.show_help.assert_called_once_with()
+        state.get_focus.return_value = Gtk.Entry()
+        self.assertFalse(ReviewWindow.review_key(state, None, event))
+        self.assertEqual(state.show_help.call_count, 1)
+
     def test_dependency_open_uses_line_and_rejects_paths_outside_clone(self):
         from pathlib import Path
         root = Path(self.state_directory.name) / 'review'
@@ -86,6 +139,10 @@ class OverviewTests(unittest.TestCase):
         self.environment = patch.dict('os.environ', {'XDG_STATE_HOME': self.state_directory.name})
         self.environment.start()
         self.addCleanup(self.environment.stop)
+        from pathlib import Path
+        seen = Path(self.state_directory.name) / 'code-flow' / 'help-seen'
+        seen.parent.mkdir(parents=True)
+        seen.touch()  # not a first start: the help window must not pop up in tests
         with patch.object(ReviewWindow, 'refresh'):
             self.window = ReviewWindow()
         self.window.show_all()
@@ -98,12 +155,6 @@ class OverviewTests(unittest.TestCase):
 
     def tearDown(self):
         self.window.hide()
-
-    def test_flow_uses_current_python(self):
-        import sys
-        with patch('review_app.subprocess.Popen') as launch:
-            self.window.flow(None)
-        self.assertEqual(launch.call_args.args[0][0], sys.executable)
 
     def labels(self):
         return [w.get_text() for w in self.window.canvas.get_children()[0].get_children()

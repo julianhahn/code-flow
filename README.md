@@ -21,8 +21,6 @@ It preserves the install-time command search path so Finder can find `gh` and `p
 Both tools need an existing login. No credentials are stored in the launcher.
 
 Run tests with Homebrew's `python3 -m unittest discover -v`.
-The separate Flow mode still needs a current tokensave index in `~/plancraft`;
-reviewing PRs does not.
 
 Review errors appear in the window and in a per-session log under the system
 temporary directory's `code-flow-logs` folder. Each log starts with its full path.
@@ -56,8 +54,12 @@ Pinch zoom is available when the GTK backend delivers pinch gestures.
 **Fit all** zooms out to show every card, so files not yet marked Viewed stand
 out. Double-click a card's title or diff to zoom back in (to 100% if zoomed
 out) and center it.
-Arrow keys jump to the nearest card up, down, left or right, keeping the
-current zoom and centering it (not while typing in a text field).
+The selected card (blue border) changes only when you click a card or press an
+arrow key: arrows select the nearest card up, down, left or right, keep the
+current zoom and center it (not while typing in a text field). Scrolling never
+changes the selection. The first card is selected when a map opens.
+Shift + arrow scrolls the map in that direction instead.
+Press `?` (or the **?** button) for the list of keys and features. It also opens once on the first start.
 **Hide specs** toggles all spec/test files (`*.spec.*`, `*.test.*`, `*_spec.*`,
 `*_test.*`, `test_*`, and files under `spec`, `specs`, `__tests__` or
 `__snapshots__` folders) off the map to cut noise on big PRs.
@@ -71,9 +73,6 @@ separate green/red backgrounds. Unchanged lines remain neutral.
 Current limits: no review comments, side-by-side view, or PR URL input.
 Very large patches and zooming large maps can still be slow; all cards are
 rendered rather than virtualized.
-
-**Flow mode** launches the existing flow viewer unchanged. Its own index and
-source-evidence requirements still apply; stale examples may not render.
 
 Checks: `/usr/bin/python3 -m unittest -v test_diff_canvas test_review_app test_review_summary test_review_git test_flow_model`.
 

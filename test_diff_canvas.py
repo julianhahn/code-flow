@@ -81,9 +81,7 @@ class CanvasTests(unittest.TestCase):
         while Gtk.events_pending(): Gtk.main_iteration()
         for index, path in enumerate(paths):
             file, x, y, width, height = canvas.card_positions[index]
-            canvas.scroll.get_hadjustment().set_value(x)
-            canvas.scroll.get_vadjustment().set_value(y + height / 2)
-            canvas.update_location()
+            canvas.set_active(path)
             self.assertEqual(canvas.active_file[2], path)
             self.assertEqual(canvas.path_label.get_text(), 'pkgs › demo-shared › src')
             self.assertEqual(canvas.file_label.get_text(), path.split('/')[-1])
@@ -106,32 +104,21 @@ class CanvasTests(unittest.TestCase):
         self.assertEqual(canvas.active_file[2], paths[0])
         window.destroy()
 
-    def test_focus_uses_viewport_center_instead_of_topmost_header(self):
-        from types import SimpleNamespace
-        from unittest.mock import Mock
-        files = [('M', name, name, '') for name in ('collapsed.ts', 'reading.ts', 'side.ts')]
-        state = SimpleNamespace(
-            rendering=False,
-            scroll=SimpleNamespace(
-                get_hadjustment=lambda: Gtk.Adjustment(value=0, upper=2000, page_size=800),
-                get_vadjustment=lambda: Gtk.Adjustment(value=0, upper=2000, page_size=600)),
-            card_positions=[], cards={}, focused_card=None,
-            sticky_viewed=Mock(), sticky_handler=1, progress=Mock(),
-            open_file=Mock(), open_file_button=Mock(),
-            path_label=Mock(), file_label=Mock())
-        cases = [
-            # Collapsed header above the large file being read.
-            [(files[0], 0, 0, 800, 40), (files[1], 0, 100, 800, 1500)],
-            # Center is in a gap: choose the nearer card edge.
-            [(files[0], 0, 0, 800, 100), (files[1], 0, 350, 800, 200)],
-            # Another column is visible, but not under the center.
-            [(files[2], 0, 0, 100, 600), (files[1], 200, 0, 600, 600)],
-        ]
-        for positions in cases:
-            with self.subTest(positions=positions):
-                state.card_positions = positions
-                DiffCanvas.update_location(state)
-                self.assertEqual(state.active_file, files[1])
+    def test_scrolling_does_not_change_the_active_card_but_clicks_do(self):
+        paths = ['a.ts', 'b.ts', 'c.ts']
+        canvas = DiffCanvas([('M', p, p, '@@ -1 +1 @@\n-old\n+new') for p in paths])
+        window = Gtk.Window(); window.set_default_size(900, 300)
+        window.add(canvas); window.show_all()
+        while Gtk.events_pending(): Gtk.main_iteration()
+        self.assertEqual(canvas.active_file[2], 'a.ts')  # default: first card
+        canvas.scroll.get_vadjustment().set_value(canvas.card_positions[2][2])
+        while Gtk.events_pending(): Gtk.main_iteration()
+        self.assertEqual(canvas.active_file[2], 'a.ts')
+        canvas.set_active('c.ts')
+        self.assertEqual(canvas.active_file[2], 'c.ts')
+        self.assertTrue(canvas.cards['c.ts'].get_style_context().has_class('focused-card'))
+        self.assertFalse(canvas.cards['a.ts'].get_style_context().has_class('focused-card'))
+        window.destroy()
 
     def test_wheel_burst_redraws_once_after_pause(self):
         from types import SimpleNamespace
