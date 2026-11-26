@@ -52,6 +52,7 @@ impl Canvas {
             let Some(c) = weak.upgrade() else {
                 return Proceed;
             };
+            c.cancel_key_pan();
             match e.button() {
                 1 => {
                     if let Some(i) = file {
@@ -110,6 +111,7 @@ impl Canvas {
             let Some(c) = weak.upgrade() else {
                 return Proceed;
             };
+            c.cancel_key_pan();
             if !e.state().intersects(
                 gdk::ModifierType::CONTROL_MASK
                     | gdk::ModifierType::META_MASK
@@ -184,6 +186,7 @@ impl Canvas {
         self.after_layout(|c| c.pan_to((0.0, 0.0)));
     }
     pub(super) fn invalidate_camera_restore(&self) {
+        self.cancel_key_pan();
         self.generation.set(self.generation.get().wrapping_add(1));
         self.camera_updates.borrow_mut().clear();
     }
@@ -258,6 +261,7 @@ impl Canvas {
         }
     }
     pub fn navigate(&self, direction: &str) {
+        self.cancel_key_pan();
         let Some(current) = self.active.get() else {
             return;
         };
@@ -265,21 +269,6 @@ impl Canvas {
         if let Some(index) = target {
             self.invalidate_camera_restore();
             self.center(index);
-        }
-    }
-    pub fn scroll_by(self: &Rc<Self>, direction: &str) {
-        let (a, sign) = match direction {
-            "up" => (self.scroll.vadjustment(), -1.0),
-            "down" => (self.scroll.vadjustment(), 1.0),
-            "left" => (self.scroll.hadjustment(), -1.0),
-            "right" => (self.scroll.hadjustment(), 1.0),
-            _ => return,
-        };
-        let pan = move |_: &Canvas| a.set_value(a.value() + sign * 0.4 * a.page_size());
-        if self.camera_updates.borrow().is_empty() {
-            pan(self);
-        } else {
-            self.after_layout(pan);
         }
     }
 }
@@ -310,7 +299,7 @@ pub(super) fn pinch(c: &Rc<Canvas>) -> Pinch {
 }
 
 #[cfg(target_os = "macos")]
-mod quartz {
+pub(super) mod quartz {
     use super::*;
     use glib::translate::ToGlibPtr;
     use std::{ffi::c_void, ptr, rc::Weak};
@@ -321,6 +310,25 @@ mod quartz {
     extern "C" {
         fn objc_msgSend();
         fn sel_registerName(name: *const libc::c_char) -> *mut c_void;
+        fn objc_getClass(name: *const libc::c_char) -> *mut c_void;
+    }
+    pub(in crate::canvas) fn reduce_motion() -> bool {
+        // Quartz GTK3 does not expose the system's Reduce motion preference.
+        unsafe {
+            let class = objc_getClass(c"NSWorkspace".as_ptr());
+            if class.is_null() {
+                return false;
+            }
+            let object: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
+                std::mem::transmute(objc_msgSend as *const ());
+            let boolean: unsafe extern "C" fn(*mut c_void, *mut c_void) -> bool =
+                std::mem::transmute(objc_msgSend as *const ());
+            let workspace = object(class, sel_registerName(c"sharedWorkspace".as_ptr()));
+            boolean(
+                workspace,
+                sel_registerName(c"accessibilityDisplayShouldReduceMotion".as_ptr()),
+            )
+        }
     }
     type WindowFn = unsafe extern "C" fn(*mut gdk::ffi::GdkWindow) -> *mut c_void;
     struct Data {

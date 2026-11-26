@@ -2,6 +2,7 @@
 //! handle accelerated, two-axis touchpad movement without rebuilding cards.
 mod input;
 mod model;
+mod pan;
 mod progress;
 mod render;
 
@@ -39,7 +40,7 @@ struct Hit {
 }
 
 pub type OpenFile = Rc<dyn Fn(&str)>;
-type CameraUpdate = Box<dyn FnOnce(&Canvas)>;
+type CameraUpdate = Box<dyn FnOnce(&Rc<Canvas>)>;
 
 pub struct Canvas {
     pub widget: gtk::Box,
@@ -73,6 +74,7 @@ pub struct Canvas {
     drag: Cell<Option<input::Drag>>,
     pending_pan: Cell<Option<(f64, f64)>>,
     pan_queued: Cell<bool>,
+    key_pan: pan::KeyPan,
     pinch: RefCell<Option<input::Pinch>>,
     cards: RefCell<Vec<Card>>,
     active: Cell<Option<usize>>,
@@ -214,6 +216,7 @@ impl Canvas {
             drag: Cell::default(),
             pending_pan: Cell::default(),
             pan_queued: Cell::new(false),
+            key_pan: pan::KeyPan::default(),
             pinch: RefCell::default(),
             cards: RefCell::default(),
             active: Cell::default(),
@@ -276,6 +279,7 @@ impl Canvas {
             .clear_button
             .connect_clicked(glib::clone!(@weak canvas => move |_| canvas.clear_selection()));
         canvas.bind_input(&canvas.board, None);
+        canvas.bind_key_pan();
         canvas.pinch.replace(Some(input::pinch(&canvas)));
         Ok(canvas)
     }
@@ -470,7 +474,7 @@ impl Canvas {
             buffer.remove_tag_by_name("search-current", &start, &end);
         }
     }
-    fn after_layout(self: &Rc<Self>, f: impl FnOnce(&Canvas) + 'static) {
+    fn after_layout(self: &Rc<Self>, f: impl FnOnce(&Rc<Canvas>) + 'static) {
         // A reflow may queue both a camera restore and subsequent relative pans.
         // Dispatch them in input order after GTK allocates the new bounds.
         let mut updates = self.camera_updates.borrow_mut();
