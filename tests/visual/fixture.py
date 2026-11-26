@@ -19,11 +19,11 @@ PATHS = {
 TITLE = "Review document publishing"
 
 
-def prepare(home):
+def environment(home, number, title):
     state = home / "state" / "code-flow"
     state.mkdir(parents=True)
     (state / "recent-selections.json").write_text(json.dumps(
-        [{"mode": "pr", "value": "42", "title": TITLE}]))
+        [{"mode": "pr", "value": str(number), "title": title}]))
     config = home / ".config" / "gtk-3.0"
     config.mkdir(parents=True)
     (config / "settings.ini").write_text(
@@ -35,6 +35,13 @@ def prepare(home):
                GIT_AUTHOR_EMAIL="reviewer@example.invalid",
                GIT_COMMITTER_EMAIL="reviewer@example.invalid",
                GIT_AUTHOR_DATE="2025-01-01T12:00:00Z", GIT_COMMITTER_DATE="2025-01-01T12:00:00Z")
+    commands = Path(__file__).resolve().parent / "commands"
+    env["PATH"] = str(commands) + os.pathsep + env["PATH"]
+    return env
+
+
+def prepare(home):
+    env = environment(home, 42, TITLE)
 
     def git(*args, cwd=home):
         return subprocess.check_output(["git", *args], cwd=cwd, env=env, text=True,
@@ -75,8 +82,6 @@ def prepare(home):
                     reviewDecision="APPROVED", changedFiles=len(PATHS), additions=12, deletions=4,
                     statusCheckRollup=[dict(status="COMPLETED", conclusion="SUCCESS")])
     (home / "pr.json").write_text(json.dumps(metadata))
-    commands = Path(__file__).resolve().parent / "commands"
-    env["PATH"] = str(commands) + os.pathsep + env["PATH"]
     return env
 
 def prepare_flow(env):

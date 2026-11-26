@@ -6,11 +6,13 @@ from pathlib import Path
 import sys
 
 args = sys.argv[1:]
+pr = json.loads((Path(os.environ["HOME"]) / "pr.json").read_text())
 if args[:2] == ["pr", "view"]:
-    print((Path(os.environ["HOME"]) / "pr.json").read_text())
+    print(json.dumps(pr))
 elif args[:2] == ["pr", "list"]:
     branch = args[args.index("--head") + 1]
-    print(json.dumps([dict(number=42, state="OPEN", updatedAt="2025-01-01")] if branch == "feature/publishing" else []))
+    print(json.dumps([dict(number=pr["number"], state=pr["state"], updatedAt="2025-01-01")]
+                     if branch == pr["headRefName"] else []))
 elif args[:2] == ["api", "graphql"]:
     page_info = dict(hasNextPage=False, endCursor=None)
     connections = {field: dict(nodes=[], pageInfo=page_info) for field in ("comments", "reviews", "reviewThreads")}
@@ -19,6 +21,6 @@ elif args[:2] == ["api", "graphql"]:
             id="comment-42", author=dict(login="alex"), createdAt="2025-01-01T10:00:00Z",
             body="The published state also appears in the document model.",
             url="https://github.com/example/documents/pull/42#issuecomment-1"))
-    print(json.dumps(dict(data=dict(repository=dict(pullRequest=dict(id="PR_42")), root=connections))))
+    print(json.dumps(dict(data=dict(repository=dict(pullRequest=dict(id=f"PR_{pr['number']}")), root=connections))))
 else:
     sys.exit("Unexpected gh invocation " + str(args))
