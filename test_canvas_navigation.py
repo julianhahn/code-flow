@@ -25,6 +25,35 @@ class NavigationTests(unittest.TestCase):
             canvas.queue_zoom.assert_called_once()
             self.assertGreater(canvas.queue_zoom.call_args.args[0], 1)
 
+    def test_fit_all_shows_whole_map_and_double_click_centers_card(self):
+        from gi.repository import Gtk
+        files = [('M', f'src/f{i}.py', f'src/f{i}.py', '@@ -1 +1 @@\n-old\n+new') for i in range(6)]
+        canvas = DiffCanvas(files)
+        try:
+            window = Gtk.OffscreenWindow()
+            window.set_default_size(800, 600)
+            window.add(canvas)
+            window.show_all()
+            def pump():
+                for _ in range(50):
+                    while Gtk.events_pending():
+                        Gtk.main_iteration()
+            pump()
+            canvas.fit_all()
+            pump()
+            self.assertLess(canvas.zoom, 1.0)
+            self.assertEqual(canvas.scroll.get_hadjustment().get_value(), 0)
+            path = files[3][2]
+            canvas.center_on_file(path)
+            pump()
+            self.assertGreaterEqual(canvas.zoom, 1.0)
+            card = next(p for p in canvas.card_positions if p[0][2] == path)
+            vertical = canvas.scroll.get_vadjustment()
+            expected = card[2] + card[4] / 2 - vertical.get_page_size() / 2
+            self.assertAlmostEqual(vertical.get_value(), max(0, expected), delta=2)
+        finally:
+            canvas.destroy()
+
     def test_first_populated_column_starts_at_left_edge(self):
         canvas = DiffCanvas([('M', 'a.py', 'a.py', '@@ -1 +1 @@\n-old\n+new')])
         try:
