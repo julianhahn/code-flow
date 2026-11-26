@@ -67,7 +67,22 @@ impl Picture {
     }
 }
 
-pub(super) struct LastFrame(pub(super) Picture, pub(super) View);
+pub(super) struct LastFrame {
+    picture: Picture,
+    view: View,
+    // The displayed image still shows these cards while GTK maps the new board.
+    cards: Vec<Card>,
+}
+
+impl LastFrame {
+    pub(super) fn new(picture: Picture, view: View, cards: Vec<Card>) -> Self {
+        Self {
+            picture,
+            view,
+            cards,
+        }
+    }
+}
 
 impl Picture {
     fn paint(&self, cr: &cairo::Context, view: View) {
@@ -86,52 +101,21 @@ impl Canvas {
     // The preview may still be visible when the user starts their next action.
     // Hit-test the artwork they actually clicked, using the original GTK bounds.
     fn preview_click(self: &Rc<Self>, point: Point, double: bool) {
-        let (x, y) = self.viewport();
-        let view = self
-            .zoom_animation
-            .motion
-            .borrow()
-            .as_ref()
-            .map(|m| m.current)
-            .unwrap_or(View {
-                ratio: 1.0,
-                vertical: 1.0,
-                x,
-                y,
-            });
-        let world = view.board_point(point);
-        let Some((file, _)) = self.card_at(world) else {
-            return;
+        let hit = if let Some(last) = self.zoom_animation.handoff.borrow().as_ref() {
+            Self::hit_preview(&last.cards, last.view.board_point(point))
+        } else {
+            let Some(view) = self
+                .zoom_animation
+                .motion
+                .borrow()
+                .as_ref()
+                .map(|m| m.current)
+            else {
+                return;
+            };
+            Self::hit_preview(&self.cards.borrow(), view.board_point(point))
         };
-        let control = self
-            .cards
-            .borrow()
-            .iter()
-            .find(|c| c.index == file)
-            .and_then(|card| {
-                let header = card
-                    .frame
-                    .children()
-                    .into_iter()
-                    .next()?
-                    .downcast::<gtk::Box>()
-                    .ok()?;
-                header
-                    .children()
-                    .into_iter()
-                    .filter(|w| w.is::<gtk::Button>())
-                    .find(|w| {
-                        let Some((left, top)) = w.translate_coordinates(&card.frame, 0, 0) else {
-                            return false;
-                        };
-                        let x = world.0 - card.rect.x - left as f64;
-                        let y = world.1 - card.rect.y - top as f64;
-                        x >= 0.0
-                            && y >= 0.0
-                            && x < w.allocated_width() as f64
-                            && y < w.allocated_height() as f64
-                    })
-            });
+        let Some((file, control)) = hit else { return };
         if let Some(control) = control {
             if !double {
                 if control.is::<gtk::CheckButton>() {
@@ -160,6 +144,34 @@ impl Canvas {
                 self.after_zoom(move |c| c.select_file(file));
             }
         }
+    }
+
+    fn hit_preview(cards: &[Card], world: Point) -> Option<(usize, Option<gtk::Widget>)> {
+        let card = cards.iter().find(|card| {
+            let r = card.rect;
+            (r.x..=r.x + r.w).contains(&world.0) && (r.y..=r.y + r.h).contains(&world.1)
+        })?;
+        let header = card
+            .frame
+            .children()
+            .into_iter()
+            .next()?
+            .downcast::<gtk::Box>()
+            .ok()?;
+        let control = header
+            .children()
+            .into_iter()
+            .filter(|w| w.is::<gtk::Button>())
+            .find(|w| {
+                let Some((left, top)) = w.translate_coordinates(&card.frame, 0, 0) else {
+                    return false;
+                };
+                let x = world.0 - card.rect.x - left as f64;
+                let y = world.1 - card.rect.y - top as f64;
+                (0.0..w.allocated_width() as f64).contains(&x)
+                    && (0.0..w.allocated_height() as f64).contains(&y)
+            });
+        Some((card.index, control))
     }
 
     fn pan_preview(self: &Rc<Self>, dx: f64, dy: f64) {
@@ -203,10 +215,8 @@ impl Canvas {
                 if let Some(picture) = &m.picture {
                     picture.paint(cr, m.current);
                 }
-            } else if let Some(LastFrame(picture, view)) =
-                c.zoom_animation.handoff.borrow().as_ref()
-            {
-                picture.paint(cr, *view);
+            } else if let Some(last) = c.zoom_animation.handoff.borrow().as_ref() {
+                last.picture.paint(cr, last.view);
             }
             glib::Propagation::Stop
         });

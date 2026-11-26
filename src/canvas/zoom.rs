@@ -468,6 +468,7 @@ impl Canvas {
         drop(motion);
         let mut layout = finished.layout.take().unwrap();
         let new_board = layout.board.clone();
+        let old_cards = self.cards.take();
         self.zoom.set(finished.zoom);
         layout.finish(self);
         let old_board = self.board.replace(new_board.clone());
@@ -475,7 +476,7 @@ impl Canvas {
             finished
                 .picture
                 .take()
-                .map(|picture| LastFrame(picture, finished.current)),
+                .map(|picture| LastFrame::new(picture, finished.current, old_cards)),
         );
         self.zoom_animation.settling.set(true);
         self.scroll.remove(&old_board);
