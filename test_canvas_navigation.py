@@ -2,7 +2,7 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
-from diff_canvas import DiffCanvas, Gdk
+from diff_canvas import DiffCanvas, Gdk, is_spec
 
 
 class NavigationTests(unittest.TestCase):
@@ -53,6 +53,41 @@ class NavigationTests(unittest.TestCase):
             self.assertAlmostEqual(vertical.get_value(), max(0, expected), delta=2)
         finally:
             canvas.destroy()
+
+    def test_is_spec_matches_common_test_files(self):
+        for path in ('a/b.spec.ts', 'a/b.test.tsx', 'a/b_spec.rb', 'a/b_test.go', 'a/test_b.py',
+                     'a/__tests__/b.ts', 'spec/b.rb', 'a/__snapshots__/b.snap'):
+            self.assertTrue(is_spec(path), path)
+        for path in ('a/b.ts', 'a/specification.ts', 'a/latest.py', 'a/contest/b.py'):
+            self.assertFalse(is_spec(path), path)
+
+    def test_hide_specs_toggle_removes_spec_cards(self):
+        files = [('M', p, p, '@@ -1 +1 @@\n-old\n+new') for p in ('src/a.ts', 'src/a.spec.ts')]
+        canvas = DiffCanvas(files)
+        try:
+            self.assertEqual(set(canvas.cards), {'src/a.ts', 'src/a.spec.ts'})
+            canvas.spec_toggle.set_active(True)
+            self.assertEqual(set(canvas.cards), {'src/a.ts'})
+            self.assertIn('/ 1 viewed', canvas.read_count.get_text())
+            canvas.spec_toggle.set_active(False)
+            self.assertEqual(set(canvas.cards), {'src/a.ts', 'src/a.spec.ts'})
+        finally:
+            canvas.destroy()
+
+    def test_arrow_navigation_picks_nearest_card_in_direction(self):
+        def card(name, x, y):
+            return ((('M', name, name, '')), x, y, 100, 50)
+        positions = [card('a', 0, 0), card('b', 0, 100), card('c', 0, 200), card('d', 300, 100)]
+        canvas = SimpleNamespace(card_positions=positions, active_file=positions[1][0])
+        neighbor = lambda key: DiffCanvas.neighbor_path(canvas, key)
+        self.assertEqual(neighbor('down'), 'c')
+        self.assertEqual(neighbor('up'), 'a')
+        self.assertEqual(neighbor('right'), 'd')
+        self.assertIsNone(neighbor('left'))
+        canvas.active_file = positions[2][0]
+        self.assertIsNone(neighbor('down'))
+        canvas.active_file = None
+        self.assertEqual(neighbor('down'), 'a')
 
     def test_first_populated_column_starts_at_left_edge(self):
         canvas = DiffCanvas([('M', 'a.py', 'a.py', '@@ -1 +1 @@\n-old\n+new')])

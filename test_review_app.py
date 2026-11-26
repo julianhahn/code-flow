@@ -27,6 +27,24 @@ class OverviewTests(unittest.TestCase):
         self.assertFalse(ReviewWindow.review_key(state, None, event))
         board.sticky_viewed.destroy()
 
+    def test_arrow_keys_navigate_cards_but_not_while_typing(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from review_app import Gdk
+        board = Mock()
+        board.navigate.return_value = True
+        state = Mock()
+        state.views.get_visible_child_name.return_value = 'map'
+        state.views.get_child_by_name.return_value = board
+        state.get_focus.return_value = None
+        event = SimpleNamespace(keyval=Gdk.KEY_Down, state=0)
+        self.assertTrue(ReviewWindow.review_key(state, None, event))
+        board.navigate.assert_called_once_with('down')
+        for focus in (Gtk.Entry(), Gtk.TextView()):
+            state.get_focus.return_value = focus
+            self.assertFalse(ReviewWindow.review_key(state, None, event))
+        self.assertEqual(board.navigate.call_count, 1)
+
     def test_dependency_open_uses_line_and_rejects_paths_outside_clone(self):
         from pathlib import Path
         root = Path(self.state_directory.name) / 'review'
