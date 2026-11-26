@@ -95,10 +95,8 @@ impl Canvas {
         self.scroll
             .connect_unmap(glib::clone!(@weak self as c => move |_| c.cancel_key_pan()));
         for adj in [self.scroll.hadjustment(), self.scroll.vadjustment()] {
-            // A resize changes the step and bounds. Native scrollbar drags,
-            // touchpad momentum, or another camera action take ownership of
-            // the currently displayed position when they change its value.
-            adj.connect_changed(glib::clone!(@weak self as c => move |_| c.stop_key_pan()));
+            // A native scrollbar drag, touchpad momentum or another camera
+            // action takes ownership if it changes the displayed position.
             adj.connect_value_changed(glib::clone!(@weak self as c => move |_| {
                 if !c.key_pan.applying.get() {
                     c.stop_key_pan();
@@ -173,6 +171,10 @@ impl Canvas {
         let active = window.is_active();
         let window = window.downgrade();
         let weak = Rc::downgrade(self);
+        // GtkScrolledWindow tests layouts with and without scrollbar gutters
+        // during each allocation. Its adjustment's temporary page sizes can
+        // differ by 15 px even though the final viewport has not resized.
+        let page = [adjustments[0].page_size(), adjustments[1].page_size()];
         let tick = self.scroll.add_tick_callback(move |scroll, clock| {
             let Some(c) = weak.upgrade() else {
                 return glib::ControlFlow::Break;
@@ -181,7 +183,16 @@ impl Canvas {
                 (!active || w.is_active())
                     && w.focused_widget() == focus.as_ref().and_then(|old| old.upgrade())
             });
-            if let Some(motion) = c.key_pan.motion.get().filter(|_| focused) {
+            let current_page = [
+                scroll.hadjustment().page_size(),
+                scroll.vadjustment().page_size(),
+            ];
+            if let Some(motion) = c
+                .key_pan
+                .motion
+                .get()
+                .filter(|_| focused && current_page == page)
+            {
                 let (point, _, done) = motion.sample(clock.frame_time());
                 c.key_pan.applying.set(true);
                 scroll.hadjustment().set_value(point[0]);
