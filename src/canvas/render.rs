@@ -318,7 +318,7 @@ impl Canvas {
         let (bg, fg) = status_colors(&file.status);
         let z = self.zoom.get();
         let frame = gtk::Box::new(V, 0);
-        frame.style_context().add_class("diff-card");
+        theme::style(&frame, "diff-card");
         frame.style_context().add_provider(&styles.border, PRIORITY);
         let header = gtk::Box::new(H, round(6.0 * z).max(1));
         let name = file.path.rsplit('/').next().unwrap_or_default();

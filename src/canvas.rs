@@ -151,7 +151,7 @@ impl Canvas {
         let labels = gtk::Box::new(V, 4);
         let path_label = gtk::Label::new(Some("Move to a file to see its path"));
         path_label.set_ellipsize(pango::EllipsizeMode::Middle);
-        path_label.style_context().add_class("muted");
+        crate::theme::style(&path_label, "muted");
         let file_label = gtk::Label::new(None);
         for label in [&path_label, &file_label] {
             label.set_xalign(0.0);
@@ -333,7 +333,7 @@ impl Canvas {
                     c.frame.style_context().remove_class("focused-card");
                 }
                 if Some(c.index) == active {
-                    c.frame.style_context().add_class("focused-card");
+                    crate::theme::style(&c.frame, "focused-card");
                 }
             }
         }

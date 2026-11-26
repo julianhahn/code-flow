@@ -1,10 +1,29 @@
 use gtk::prelude::*;
+use std::{collections::HashSet, sync::LazyLock};
+
+const CSS: &str = include_str!("theme.css");
+static CLASSES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    regex::Regex::new(r"\.([a-z][a-z0-9-]*)")
+        .expect("valid CSS class expression")
+        .captures_iter(CSS)
+        .map(|c| c.get(1).unwrap().as_str())
+        .collect()
+});
+
+fn check_class(name: &str) {
+    assert!(CLASSES.contains(name), "Unknown theme class {name:?}");
+}
+
+pub fn style(widget: &impl IsA<gtk::Widget>, name: &str) {
+    check_class(name);
+    widget.style_context().add_class(name);
+}
 
 /// Application-wide palette and widget styles, including auxiliary windows.
 pub fn apply() {
     let provider = gtk::CssProvider::new();
     provider
-        .load_from_data(include_bytes!("theme.css"))
+        .load_from_data(CSS.as_bytes())
         .expect("valid Code Flow CSS");
     if let Some(screen) = gdk::Screen::default() {
         gtk::StyleContext::add_provider_for_screen(
@@ -33,6 +52,12 @@ pub(crate) fn color(widget: &impl IsA<gtk::Widget>, token: &str) -> gdk::RGBA {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+
+    #[test]
+    #[should_panic(expected = "Unknown theme class")]
+    fn rejects_unknown_class() {
+        super::check_class("focusd-card");
+    }
 
     #[test]
     fn all_text_meets_wcag_aa_on_its_background() {
