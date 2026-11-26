@@ -47,6 +47,7 @@ pub struct Canvas {
     spec: gtk::ToggleButton,
     info: gtk::Label,
     count: gtk::Label,
+    references: gtk::CheckButton,
     path_label: gtk::Label,
     file_label: gtk::Label,
     sticky: gtk::CheckButton,
@@ -184,6 +185,7 @@ impl Canvas {
             spec,
             info,
             count,
+            references,
             path_label,
             file_label,
             sticky,
@@ -228,6 +230,11 @@ impl Canvas {
                 }
             });
         }
+        canvas
+            .references
+            .connect_toggled(glib::clone!(@weak canvas => move |_| {
+                canvas.update_reference_output();
+            }));
         fit.connect_clicked(glib::clone!(@weak canvas => move |_| canvas.fit_all()));
         canvas
             .spec
@@ -307,10 +314,20 @@ impl Canvas {
             callback();
         }
     }
+    fn update_reference_output(&self) {
+        // The review builder deliberately does not resolve or infer dependency
+        // edges. Preserve the original per-file summary when the mode is used.
+        let summary = self.active_file().filter(|_| self.references.is_active()).map(|file| {
+            format!("Reference links for {}\nResolved from source in this PR checkout. Lines show where each link occurs.\n\nNo direct links to or from other changed files.", file.path)
+        });
+        self.references.set_tooltip_text(summary.as_deref());
+    }
+
     fn update_location(&self) {
         let active = self.active.get();
         let previous = self.focused.replace(active);
         if previous != active {
+            self.update_reference_output();
             for c in self.cards.borrow().iter() {
                 if Some(c.index) == previous {
                     c.frame.style_context().remove_class("focused-card");

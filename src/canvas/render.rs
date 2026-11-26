@@ -331,7 +331,7 @@ impl Canvas {
         let title_event = gtk::EventBox::new();
         title_event.add(&title);
         title.set_tooltip_text(Some(&tooltip));
-        title_event.set_tooltip_text(Some(&tooltip));
+        title_event.set_tooltip_text(Some("Click to select this file for reference analysis"));
         header.pack_start(&title_event, true, true, 0);
         let viewed = gtk::CheckButton::with_label("Viewed");
         viewed.set_active(self.viewed.borrow().contains(&i));
