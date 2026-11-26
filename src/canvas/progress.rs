@@ -1,7 +1,7 @@
 use super::FilePatch;
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
-use std::{env, fmt::Write, path::PathBuf};
+use std::fmt::Write;
 
 pub(super) struct Progress {
     db: Connection,
@@ -48,12 +48,7 @@ impl Progress {
         let mut db = if scope.is_empty() {
             Connection::open_in_memory()
         } else {
-            let state = env::var_os("XDG_STATE_HOME")
-                .filter(|s| !s.is_empty())
-                .map(PathBuf::from)
-                .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))
-                .ok_or("No state directory available")?
-                .join("code-flow");
+            let state = crate::backend::state_dir();
             std::fs::create_dir_all(&state).map_err(|e| e.to_string())?;
             Connection::open(state.join("review-progress.sqlite3"))
         }
