@@ -39,6 +39,7 @@ struct Hit {
 }
 
 pub type OpenFile = Rc<dyn Fn(&str)>;
+type CameraUpdate = Box<dyn FnOnce(&Canvas)>;
 
 pub struct Canvas {
     pub widget: gtk::Box,
@@ -82,6 +83,7 @@ pub struct Canvas {
     hit_index: Cell<Option<usize>>,
     render_source: RefCell<Option<glib::SourceId>>,
     generation: Cell<usize>,
+    camera_updates: RefCell<Vec<CameraUpdate>>,
 }
 
 impl Canvas {
@@ -222,6 +224,7 @@ impl Canvas {
             hit_index: Cell::default(),
             render_source: RefCell::default(),
             generation: Cell::default(),
+            camera_updates: RefCell::default(),
         });
         for (button, action) in [(&zoom_in, 1.2), (&zoom_out, 1.0 / 1.2), (&reset, 0.0)] {
             let weak = Rc::downgrade(&canvas);
@@ -468,12 +471,27 @@ impl Canvas {
         }
     }
     fn after_layout(self: &Rc<Self>, f: impl FnOnce(&Canvas) + 'static) {
+        // A reflow may queue both a camera restore and subsequent relative pans.
+        // Dispatch them in input order after GTK allocates the new bounds.
+        let mut updates = self.camera_updates.borrow_mut();
+        let schedule = updates.is_empty();
+        updates.push(Box::new(f));
+        if !schedule {
+            return;
+        }
         let weak = Rc::downgrade(self);
-        let gen = self.generation.get();
+        let generation = self.generation.get();
         glib::idle_add_local_once(move || {
-            if let Some(c) = weak.upgrade() {
-                if c.generation.get() == gen {
-                    f(&c);
+            let Some(c) = weak.upgrade() else {
+                return;
+            };
+            if c.generation.get() == generation {
+                let updates = c.camera_updates.take();
+                for update in updates {
+                    if c.generation.get() != generation {
+                        break;
+                    }
+                    update(&c);
                 }
             }
         });

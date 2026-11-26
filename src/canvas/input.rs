@@ -185,6 +185,7 @@ impl Canvas {
     }
     pub(super) fn invalidate_camera_restore(&self) {
         self.generation.set(self.generation.get().wrapping_add(1));
+        self.camera_updates.borrow_mut().clear();
     }
 
     pub(super) fn select_file(&self, index: usize) {
@@ -266,7 +267,7 @@ impl Canvas {
             self.center(index);
         }
     }
-    pub fn scroll_by(&self, direction: &str) {
+    pub fn scroll_by(self: &Rc<Self>, direction: &str) {
         let (a, sign) = match direction {
             "up" => (self.scroll.vadjustment(), -1.0),
             "down" => (self.scroll.vadjustment(), 1.0),
@@ -274,7 +275,12 @@ impl Canvas {
             "right" => (self.scroll.hadjustment(), 1.0),
             _ => return,
         };
-        a.set_value(a.value() + sign * 0.4 * a.page_size());
+        let pan = move |_: &Canvas| a.set_value(a.value() + sign * 0.4 * a.page_size());
+        if self.camera_updates.borrow().is_empty() {
+            pan(self);
+        } else {
+            self.after_layout(pan);
+        }
     }
 }
 
