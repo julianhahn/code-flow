@@ -80,3 +80,29 @@ fn rejects_symlinks_that_escape_source_checkout() {
     assert_eq!(result.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&result.stderr).contains("Source escapes checkout"));
 }
+
+#[test]
+fn validation_accepts_legacy_option_order_and_line_boundaries() {
+    let root = tempfile::tempdir().unwrap();
+    let source = "one\rtwo\r\nthree\u{2028}four\u{2029}";
+    fs::write(root.path().join("f"), source).unwrap();
+    let data = json!({"version":1,"title":"Older flow","regions":[{"id":"r","label":"R"}],"edgeTypes":{},"edges":[],
+        "nodes":[{"id":"n","title":"N","region":"r","kind":"step","source":{"file":"f","line":4,"sha256":format!("{:x}",Sha256::digest(source.as_bytes()))}}]});
+    assert!(run(root.path(), &data).status.success());
+    for args in [
+        vec!["--root".into(), root.path().as_os_str().to_owned()],
+        vec![format!("--root={}", root.path().display()).into()],
+    ] {
+        let result = Command::new(env!("CARGO_BIN_EXE_code-flow"))
+            .arg("--validate-flow")
+            .args(args)
+            .arg(root.path().join("flow.json"))
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}

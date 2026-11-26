@@ -47,46 +47,59 @@ enum Mode {
 }
 
 fn arguments() -> anyhow::Result<(Mode, PathBuf)> {
+    use std::os::unix::ffi::OsStrExt;
     let mut args = std::env::args_os().skip(1).peekable();
     let mut root = std::env::var_os("CODE_FLOW_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| backend::home().join("plancraft"));
-    let mode = match args.peek().and_then(|s| s.to_str()) {
-        None => Mode::Review,
-        Some("--help" | "-h") => {
-            args.next();
-            Mode::Help
-        }
-        Some("--flow") => {
-            args.next();
-            let file = if args.peek().is_some_and(|arg| arg != "--root") {
-                args.next()
-            } else {
-                None
-            };
-            Mode::Flow(
-                file.or_else(|| std::env::var_os("CODE_FLOW_FILE"))
-                    .map(PathBuf::from),
-            )
-        }
-        Some("--validate-flow") => {
-            args.next();
-            Mode::Validate(
-                args.next()
-                    .map(PathBuf::from)
-                    .ok_or_else(|| anyhow::anyhow!("Expected a flow JSON file"))?,
-            )
-        }
-        _ => anyhow::bail!("Unknown argument. Run code-flow --help."),
+    let Some(command) = args.next() else {
+        return Ok((Mode::Review, root));
     };
-    if args.peek().is_some_and(|s| s == "--root") {
-        args.next();
-        root = args
-            .next()
-            .map(PathBuf::from)
-            .ok_or_else(|| anyhow::anyhow!("Expected a source checkout path"))?;
+    if command == "--help" || command == "-h" {
+        return Ok((Mode::Help, root));
     }
-    anyhow::ensure!(args.next().is_none(), "Unexpected extra argument");
+    let validate = command == "--validate-flow";
+    anyhow::ensure!(
+        validate || command == "--flow",
+        "Unknown command. Run code-flow --help."
+    );
+    let mut file = None;
+    let mut positional_only = false;
+    while let Some(arg) = args.next() {
+        if !positional_only {
+            if arg == "--" {
+                positional_only = true;
+                continue;
+            }
+            if arg == "--help" || arg == "-h" {
+                return Ok((Mode::Help, root));
+            }
+            if arg == "--root" {
+                root = PathBuf::from(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("Expected a source checkout path"))?,
+                );
+                continue;
+            }
+            if let Some(path) = arg.as_os_str().as_bytes().strip_prefix(b"--root=") {
+                anyhow::ensure!(!path.is_empty(), "Expected a source checkout path");
+                root = std::ffi::OsStr::from_bytes(path).into();
+                continue;
+            }
+            anyhow::ensure!(
+                !arg.as_os_str().as_bytes().starts_with(b"-"),
+                "Unknown option: {}",
+                arg.to_string_lossy()
+            );
+        }
+        anyhow::ensure!(file.is_none(), "Expected a single flow JSON file");
+        file = Some(PathBuf::from(arg));
+    }
+    let mode = if validate {
+        Mode::Validate(file.ok_or_else(|| anyhow::anyhow!("Expected a flow JSON file"))?)
+    } else {
+        Mode::Flow(file.or_else(|| std::env::var_os("CODE_FLOW_FILE").map(PathBuf::from)))
+    };
     Ok((mode, root))
 }
 

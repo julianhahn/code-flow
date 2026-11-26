@@ -161,6 +161,33 @@ pub fn parse(bytes: &[u8], root: &Path) -> Result<(Flow, Positions, Vec<String>)
     Ok((flow, positions, warnings))
 }
 
+// Match the line boundaries used to author evidence in the original JSON format.
+fn source_line_count(source: &str) -> usize {
+    let mut lines = 0;
+    let mut chars = source.chars().peekable();
+    let mut unterminated = false;
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\r'
+            | '\n'
+            | '\x0b'
+            | '\x0c'
+            | '\x1c'..='\x1e'
+            | '\u{85}'
+            | '\u{2028}'
+            | '\u{2029}' => {
+                if ch == '\r' && chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                lines += 1;
+                unterminated = false;
+            }
+            _ => unterminated = true,
+        }
+    }
+    lines + usize::from(unterminated)
+}
+
 impl Flow {
     fn validate(&self, root: &Path) -> Result<Vec<String>> {
         ensure!(self.version == 1, "Expected flow version 1");
@@ -202,7 +229,7 @@ impl Flow {
             ensure!(file.starts_with(&root), "Source escapes checkout");
             if !cache.contains_key(&file) {
                 let raw = fs::read(&file)?;
-                let lines = std::str::from_utf8(&raw)?.lines().count();
+                let lines = source_line_count(std::str::from_utf8(&raw)?);
                 cache.insert(file.clone(), (format!("{:x}", Sha256::digest(&raw)), lines));
             }
             let (hash, lines) = &cache[&file];
