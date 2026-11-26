@@ -12,6 +12,10 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     rc::Rc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 const W: f64 = 370.;
@@ -252,13 +256,13 @@ pub struct Viewer {
     zoom: Cell<f64>,
     drag: Cell<Option<(f64, f64)>>,
     diff_base: String,
+    diff_request: RefCell<Option<Arc<AtomicBool>>>,
 }
 
 impl Viewer {
     pub fn new(root: PathBuf, path: Option<PathBuf>) -> Rc<Self> {
         let window = gtk::Window::new(gtk::WindowType::Toplevel);
         window.set_default_size(1320, 820);
-        window.connect_destroy(|_| gtk::main_quit());
         let body = vbox(10);
         body.set_margin(16);
         window.add(&body);
@@ -304,6 +308,7 @@ impl Viewer {
             display: Default::default(),
             zoom: Cell::new(1.),
             drag: Default::default(),
+            diff_request: Default::default(),
             diff_base: std::env::var("CODE_FLOW_DIFF_BASE")
                 .unwrap_or_else(|_| "origin/main".into()),
         });
@@ -318,6 +323,10 @@ impl Viewer {
             }
             Propagation::Stop
         }));
+        view.window.connect_destroy(clone!(@weak view => move |_| {
+            view.cancel_diff();
+            gtk::main_quit();
+        }));
         diff.connect_clicked(clone!(@weak view => move |_|view.diff()));
         search.connect_clicked(clone!(@weak view => move |_|view.search()));
         view.query
@@ -327,7 +336,9 @@ impl Viewer {
             view.example();
         }));
         open.connect_clicked(clone!(@weak view => move |_| view.choose_flow()));
-        collapse.connect_clicked(clone!(@weak view => move |_| view.reset_view()));
+        collapse.connect_clicked(
+            clone!(@weak view => move |_| {view.cancel_diff(); view.reset_view();}),
+        );
         view.connect_input();
         view.window.show_all();
         if std::env::var("CODE_FLOW_START_VIEW").as_deref() == Ok("diff") {
@@ -462,6 +473,7 @@ impl Viewer {
         }
     }
     fn example(&self) {
+        self.cancel_diff();
         let read = match self.path.borrow().as_ref() {
             Some(p) => flow_model::read(p, &self.root),
             None => flow_model::parse(EXAMPLE, &self.root),
@@ -581,6 +593,7 @@ impl Viewer {
         if dialog.run() == gtk::ResponseType::Ok {
             if let Some((model, it)) = tree.selection().selected() {
                 if let Ok(index) = model.value(&it, 2).get::<u32>() {
+                    self.cancel_diff();
                     let (name, path, line) = &rows[index as usize];
                     if name == "publishDocumentRequest"
                         && path.ends_with("api-functions/documents/publishDocumentRequest.ts")
@@ -636,103 +649,279 @@ impl Viewer {
         dialog.connect_response(|d, _| d.close());
         dialog.show_all();
     }
-    fn diff(&self) {
-        let git = |args: &[&str]| -> Result<Vec<u8>> {
-            let out = Command::new("git")
-                .arg("--literal-pathspecs")
-                .args(args)
-                .current_dir(&self.root)
-                .output()?;
-            if !out.status.success() {
-                return Err(anyhow!("{}", String::from_utf8_lossy(&out.stderr).trim()));
-            }
-            Ok(out.stdout)
-        };
-        let build = || -> Result<Scene> {
-            ensure!(!self.diff_base.starts_with('-'), "Invalid comparison base");
-            let names = git(&[
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--name-status",
-                "-z",
-                &self.diff_base,
-                "--",
-            ])?;
-            let mut fields = names.split(|&c| c == 0);
-            let mut counts = [0; 4];
-            let mut scene = Scene {
-                size: (1790, 90),
-                ..Default::default()
-            };
-            for (i, name) in ["DBTYPES", "FRONTEND", "SHARED/API", "BACKEND"]
-                .iter()
-                .enumerate()
-            {
-                scene
-                    .labels
-                    .push((30. + i as f64 * 440., 48., name.to_string()));
-            }
-            while let Some(status) = fields.next().filter(|s| !s.is_empty()) {
-                let status = String::from_utf8_lossy(status);
-                let old = String::from_utf8_lossy(fields.next().context("Missing file path")?);
-                let path = if status.starts_with(['R', 'C']) {
-                    String::from_utf8_lossy(fields.next().context("Missing rename target")?)
-                } else {
-                    old.clone()
-                };
-                let lower = path.to_lowercase();
-                let column = [
-                    &["dbtypes", "db-types", "types"][..],
-                    &["frontend", "frontend-web", "web"],
-                    &["shared", "contract", "api"],
-                    &["backend", "service", "functions"],
-                ]
-                .iter()
-                .position(|hints| hints.iter().any(|hint| lower.contains(hint)))
-                .unwrap_or(2);
-                let mut args = vec![
-                    "diff",
-                    "--no-ext-diff",
-                    "--no-textconv",
-                    "--unified=3",
-                    &self.diff_base,
-                    "--",
-                    &old,
-                ];
-                if path != old {
-                    args.push(&path);
+    fn cancel_diff(&self) {
+        if let Some(request) = self.diff_request.take() {
+            request.store(true, Ordering::Release);
+        }
+    }
+
+    fn diff(self: &Rc<Self>) {
+        self.cancel_diff();
+        self.notice.set_text("Reading PR diff…");
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.diff_request.replace(Some(cancel.clone()));
+        let root = self.root.clone();
+        let base = self.diff_base.clone();
+        let request = cancel.clone();
+        let weak = Rc::downgrade(self);
+        let task = gio::spawn_blocking(move || diff_snapshot(&root, &base, &request));
+        glib::MainContext::default().spawn_local(async move {
+            let result = task.await.unwrap_or_else(|_| Err(anyhow!("Git diff worker stopped unexpectedly.")));
+            let Some(view) = weak.upgrade() else { return };
+            if cancel.load(Ordering::Acquire) { return; }
+            view.diff_request.take();
+            match result {
+                Ok(scene) => {
+                    view.scene.replace(scene);
+                    view.notice.set_text("PR DIFF · left to right: DBTypes → Frontend → Shared → Backend. Click a card to read its diff. Set CODE_FLOW_DIFF_BASE to compare another base.");
                 }
-                let patch = String::from_utf8_lossy(&git(&args)?).into_owned();
-                scene.cards.push(Card {
-                    x: 30. + column as f64 * 440.,
-                    y: (70 + counts[column] * 208) as f64,
-                    kind: if status == "M" { "condition" } else { "call" }.into(),
-                    title: format!("{status}  {path}"),
-                    hint: "Click to open diff".into(),
-                    path: path.into_owned(),
-                    line: 1,
-                    patch: Some(patch),
-                });
-                counts[column] += 1;
-                scene.size.1 = scene.size.1.max(82 + counts[column] * 208);
+                Err(e) => {
+                    view.scene.replace(Scene {size:(1790,90),..Scene::default()});
+                    view.notice.set_text(&format!("Cannot read diff against {}: {e}",view.diff_base));
+                    eprintln!("Cannot read flow diff against {}: {e}",view.diff_base);
+                }
             }
-            Ok(scene)
-        };
-        match build() {
-            Ok(scene) => {
-                self.scene.replace(scene);
-                self.notice.set_text("PR DIFF · left to right: DBTypes → Frontend → Shared → Backend. Click a card to read its diff. Set CODE_FLOW_DIFF_BASE to compare another base.");
-            }
-            Err(e) => {
-                self.scene.replace(Scene {
-                    size: (1790, 90),
-                    ..Default::default()
-                });
-                self.notice
-                    .set_text(&format!("Cannot read diff against {}: {e}", self.diff_base));
+            view.reset_view();
+        });
+    }
+}
+
+// --raw -z prints the entire name/status table before the patches. Reading
+// both in one Git invocation keeps previews on the same working-tree snapshot
+// and avoids a repository scan for every card.
+fn diff_snapshot(root: &Path, base: &str, cancel: &AtomicBool) -> Result<Scene> {
+    ensure!(
+        !base.is_empty() && !base.starts_with('-'),
+        "Invalid comparison base"
+    );
+    let raw = crate::backend::run(
+        root,
+        "git",
+        &[
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--raw",
+            "-z",
+            "--patch",
+            "--submodule=short",
+            "--unified=3",
+            base,
+            "--",
+        ],
+        Some(cancel),
+    )
+    .map_err(anyhow::Error::msg)?;
+    let mut counts = [0; 4];
+    let mut scene = Scene {
+        size: (1790, 90),
+        ..Default::default()
+    };
+    for (i, name) in ["DBTYPES", "FRONTEND", "SHARED/API", "BACKEND"]
+        .iter()
+        .enumerate()
+    {
+        scene
+            .labels
+            .push((30. + i as f64 * 440., 48., name.to_string()));
+    }
+    if raw.is_empty() {
+        return Ok(scene);
+    }
+    let end = raw
+        .windows(2)
+        .position(|pair| pair == b"\0\0")
+        .context("Incomplete Git patch table")?;
+    let mut fields = raw[..end].split(|&b| b == 0);
+    let patches = String::from_utf8_lossy(&raw[end + 2..]);
+    // A diff hunk prefixes every content line with a marker. Only real
+    // section headers can begin a line with "diff --git ".
+    let mut offsets = patches
+        .match_indices("\ndiff --git ")
+        .map(|(i, _)| i + 1)
+        .collect::<Vec<_>>();
+    if !patches.is_empty() {
+        ensure!(
+            patches.starts_with("diff --git "),
+            "Missing first Git patch"
+        );
+        offsets.insert(0, 0);
+    }
+    offsets.push(patches.len());
+    let mut ranges = offsets.windows(2).peekable();
+    while let Some(header) = fields.next() {
+        if cancel.load(Ordering::Acquire) {
+            return Err(anyhow!("Diff cancelled."));
+        }
+        let status = std::str::from_utf8(header)?
+            .split_ascii_whitespace()
+            .last()
+            .context("Missing Git status")?;
+        let mut name = fields.next().context("Missing Git path")?;
+        if status.starts_with(['R', 'C']) {
+            name = fields.next().context("Missing Git rename target")?;
+        }
+        let path = String::from_utf8_lossy(name);
+        let lower = path.to_lowercase();
+        let column = [
+            &["dbtypes", "db-types", "types"][..],
+            &["frontend", "frontend-web", "web"],
+            &["shared", "contract", "api"],
+            &["backend", "service", "functions"],
+        ]
+        .iter()
+        .position(|hints| hints.iter().any(|hint| lower.contains(hint)))
+        .unwrap_or(2);
+        let range = ranges.next().context("Missing patch for changed file")?;
+        let (start, mut end) = (range[0], range[1]);
+        // Git represents a regular-file/symlink/gitlink type change with
+        // separate delete and create patch sections for the same path.
+        if status.starts_with('T')
+            && patches[start..end]
+                .lines()
+                .nth(1)
+                .is_some_and(|s| s.starts_with("deleted file mode "))
+        {
+            if let Some(next) = ranges.peek() {
+                let created = &patches[next[0]..next[1]];
+                if created.lines().next() == patches[start..end].lines().next()
+                    && created
+                        .lines()
+                        .nth(1)
+                        .is_some_and(|s| s.starts_with("new file mode "))
+                {
+                    end = ranges.next().unwrap()[1];
+                }
             }
         }
-        self.reset_view();
+        scene.cards.push(Card {
+            x: 30. + column as f64 * 440.,
+            y: (70 + counts[column] * 208) as f64,
+            kind: if status == "M" { "condition" } else { "call" }.into(),
+            title: format!("{status}  {path}"),
+            hint: "Click to open diff".into(),
+            path: path.into_owned(),
+            line: 1,
+            patch: Some(patches[start..end].to_owned()),
+        });
+        counts[column] += 1;
+        scene.size.1 = scene.size.1.max(82 + counts[column] * 208);
+    }
+    ensure!(ranges.next().is_none(), "Unmatched Git patch sections");
+    Ok(scene)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn snapshot_matches_per_file_git_patches_including_renames_type_changes_and_conflicts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let command = |args: &[&str]| {
+            Command::new("git")
+                .args([
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=t@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "--literal-pathspecs",
+                ])
+                .args(args)
+                .current_dir(root)
+                .output()
+                .unwrap()
+        };
+        let git = |args: &[&str]| {
+            let out = command(args);
+            assert!(
+                out.status.success(),
+                "{args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            out.stdout
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "diff.renames", "true"]);
+        for (name, body) in [
+            ("conflict", "initial\n"),
+            ("change-type", "original\n"),
+            ("deleted", "deleted\n"),
+            ("old-name", "renamed\n"),
+        ] {
+            fs::write(root.join(name), body).unwrap();
+        }
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", "Base"]);
+        let cancel = AtomicBool::new(false);
+        assert!(diff_snapshot(root, "HEAD", &cancel)
+            .unwrap()
+            .cards
+            .is_empty());
+        git(&["switch", "-qc", "other"]);
+        fs::write(root.join("conflict"), "theirs\n").unwrap();
+        git(&["commit", "-qam", "Other"]);
+        git(&["switch", "-q", "main"]);
+        fs::write(root.join("conflict"), "ours\n").unwrap();
+        git(&["commit", "-qam", "Main"]);
+        assert!(!command(&["merge", "other"]).status.success());
+        fs::remove_file(root.join("change-type")).unwrap();
+        symlink("target", root.join("change-type")).unwrap();
+        fs::remove_file(root.join("deleted")).unwrap();
+        let unusual = "new [literal]\nfile";
+        fs::rename(root.join("old-name"), root.join(unusual)).unwrap();
+        fs::write(root.join("binary"), [0, 3, 2]).unwrap();
+        git(&[
+            "add",
+            "-A",
+            "--",
+            "binary",
+            "change-type",
+            "deleted",
+            "old-name",
+            unusual,
+        ]);
+        let scene = diff_snapshot(root, "HEAD", &cancel).unwrap();
+        let by_path = scene
+            .cards
+            .iter()
+            .map(|c| (c.path.as_str(), c))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(by_path.len(), 5);
+        assert!(by_path[unusual].title.starts_with("R"));
+        assert!(by_path["change-type"].title.starts_with("T"));
+        for (&path, card) in &by_path {
+            let mut args = vec![
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--unified=3",
+                "HEAD",
+                "--",
+                path,
+            ];
+            if path == unusual {
+                args.push("old-name");
+            }
+            assert_eq!(
+                card.patch.as_deref().unwrap().as_bytes(),
+                git(&args),
+                "patch for {path}"
+            );
+        }
+        assert!(by_path["conflict"]
+            .patch
+            .as_ref()
+            .unwrap()
+            .contains("<<<<<<< HEAD"));
+        assert!(diff_snapshot(root, "HEAD", &AtomicBool::new(true)).is_err());
     }
 }

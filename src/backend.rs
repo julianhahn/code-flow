@@ -70,7 +70,12 @@ fn read_output(mut pipe: impl Read) -> Result<Vec<u8>> {
 
 // Drain both pipes concurrently: patch output and transport diagnostics can each
 // exceed an OS pipe, especially when Git fetches missing partial-clone objects.
-fn run(root: &Path, program: &str, args: &[&str], cancel: Option<&AtomicBool>) -> Result<Vec<u8>> {
+pub(crate) fn run(
+    root: &Path,
+    program: &str,
+    args: &[&str],
+    cancel: Option<&AtomicBool>,
+) -> Result<Vec<u8>> {
     let cancelled = || cancel.is_some_and(|flag| flag.load(Ordering::Relaxed));
     if cancelled() {
         return Err("Review build cancelled.".into());
