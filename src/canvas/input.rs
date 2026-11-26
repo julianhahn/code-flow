@@ -7,6 +7,13 @@ pub(super) struct Drag {
     viewport: (f64, f64),
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct CardPress {
+    file: usize,
+    time: u32,
+    root: (f64, f64),
+}
+
 impl Canvas {
     pub(super) fn viewport(&self) -> (f64, f64) {
         (
@@ -38,6 +45,43 @@ impl Canvas {
         });
     }
 
+    // GTK counts plain and modified presses together. Count only Ctrl presses
+    // so selecting a word and immediately Ctrl+double-clicking it still works.
+    pub(super) fn handle_center_press(
+        self: &Rc<Self>,
+        file: usize,
+        event: &gdk::EventButton,
+    ) -> bool {
+        if !event.state().contains(gdk::ModifierType::CONTROL_MASK) {
+            self.center_press.set(None);
+            return false;
+        }
+        if event.event_type() == gdk::EventType::ButtonPress {
+            let press = CardPress {
+                file,
+                time: event.time(),
+                root: event.root(),
+            };
+            let Some(settings) = self.scroll.settings() else {
+                return false;
+            };
+            let distance = f64::from(settings.gtk_double_click_distance());
+            let matches = self.center_press.replace(Some(press)).is_some_and(|prev| {
+                prev.file == file
+                    && press.time.wrapping_sub(prev.time) <= settings.gtk_double_click_time() as u32
+                    && (prev.root.0 - press.root.0).abs() <= distance
+                    && (prev.root.1 - press.root.1).abs() <= distance
+            });
+            if matches {
+                self.center_press.set(None);
+                self.center_on_file(&self.files[file].path, 1.0);
+            }
+        }
+        // Consume the first modified press too. Quartz normally uses it to
+        // open the context menu before a second press can reach the text.
+        true
+    }
+
     pub(super) fn bind_input(self: &Rc<Self>, w: &impl IsA<gtk::Widget>, file: Option<usize>) {
         w.add_events(
             gdk::EventMask::BUTTON_PRESS_MASK
@@ -55,8 +99,7 @@ impl Canvas {
             match e.button() {
                 1 => {
                     if let Some(i) = file {
-                        if e.event_type() == gdk::EventType::DoubleButtonPress {
-                            c.center_on_file(&c.files[i].path, 1.0);
+                        if c.handle_center_press(i, e) {
                             return Stop;
                         }
                         c.select_file(i);

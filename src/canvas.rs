@@ -73,6 +73,7 @@ pub struct Canvas {
     changed: RefCell<Option<Box<dyn Fn()>>>,
     zoom: Cell<f64>,
     drag: Cell<Option<input::Drag>>,
+    center_press: Cell<Option<input::CardPress>>,
     pending_pan: Cell<Option<(f64, f64)>>,
     pan_queued: Cell<bool>,
     key_pan: pan::KeyPan,
@@ -129,7 +130,7 @@ impl Canvas {
         tools.pack_start(&info, false, false, 0);
         let count = gtk::Label::new(None);
         tools.pack_start(&count, false, false, 8);
-        let hint="Middle-drag to pan · Pinch or Ctrl + wheel to zoom · Double-click a card to center it · Hover filename for full path";
+        let hint="Middle-drag to pan · Pinch or Ctrl + wheel to zoom · Ctrl + double-click a card to center it · Hover filename for full path";
         let help = gtk::Label::new(Some(hint));
         help.set_ellipsize(pango::EllipsizeMode::End);
         help.set_max_width_chars(24);
@@ -220,6 +221,7 @@ impl Canvas {
             changed: RefCell::default(),
             zoom: Cell::new(1.0),
             drag: Cell::default(),
+            center_press: Cell::default(),
             pending_pan: Cell::default(),
             pan_queued: Cell::new(false),
             key_pan: pan::KeyPan::default(),

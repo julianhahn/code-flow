@@ -177,7 +177,7 @@ pub fn help(parent: &gtk::Window) -> gtk::Window {
             &[
                 ("Ctrl + scroll, + / −", "Zoom in and out"),
                 ("Two-finger scroll, middle-drag", "Pan the map"),
-                ("Double-click a card", "Zoom in and center that card"),
+                ("Ctrl + double-click", "Zoom in and center that card"),
                 (
                     "Fit all",
                     "Zoom out to see every card and what is still unviewed",

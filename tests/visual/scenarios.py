@@ -120,6 +120,11 @@ class Screenshots:
             patch = "review.png" if review else "flow.png"
             with Image.open(Path(__file__).with_name("appearance") / patch) as control:
                 expected.paste(control, (1304, 57) if review else (1219, 62))
+        # Only the shortcut keycap and the untruncated map hint changed.
+        gesture_text = {"01-first-run-help": (33, 450), "14-sidebar-hidden": (1249, 141)}
+        if MODE == "compare" and name in gesture_text:
+            with Image.open(Path(__file__).with_name("gestures") / (name + ".png")) as updated:
+                expected.paste(updated, gesture_text[name])
         if expected.size != actual.size:
             self.failures.append(f"{name}: size {actual.size}, expected {expected.size}")
             return

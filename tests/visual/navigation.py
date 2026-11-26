@@ -119,12 +119,41 @@ class Map:
             until("Shift+arrow did not move the viewport", lambda: midpoint(control) != (x, y))
         raise AssertionError("Cannot bring the requested control onto the screen")
 
-    def select_title(self, path, double=False):
+    def select_title(self, path, center=False):
         x, y = self.visible_point(self.titles[path])
-        if double:
-            xdo("mousemove", x, y, "click", "--repeat", 2, "--delay", 75, 1)
+        if center:
+            xdo("mousemove", x, y, "keydown", "Control_L", "click", "--repeat", 2, "--delay", 75, 1, "keyup", "Control_L")
         else:
             click(x, y)
+
+    def select_word(self, path):
+        # Choose an actual visible word on the panned card, using GTK's text
+        # bounds so differences in font metrics do not affect the click.
+        card = self.cards[path]
+        body = card.get_child_at_index(1)
+        bounds = box(card)
+        left, top, right, bottom = box(self.board)
+        zoom = self.zoom()
+        content = body.get_text(0, -1)
+        for word in re.finditer(r"\b[A-Za-z]{4,}\b", content):
+            glyph = body.get_character_extents(word.start() + 1, Atspi.CoordType.SCREEN)
+            x, y = glyph.x + glyph.width // 2, glyph.y + glyph.height // 2
+            if left < x < right and top < y < bottom:
+                break
+        else:
+            raise AssertionError("No visible word on panned test card")
+        xdo("mousemove", x, y, "click", "--repeat", 2, "--delay", 75, 1)
+        def selected_word():
+            if not body.get_n_selections():
+                return False
+            span = body.get_selection(0)
+            return body.get_text(span.start_offset, span.end_offset) == word.group()
+        until("Plain double-click did not select the word", selected_word)
+        assert box(card) == bounds and self.zoom() == zoom, "Selecting diff text moved the camera"
+        # A new modified pair must work even after selecting a word at the same point.
+        xdo("keydown", "Control_L", "click", "--repeat", 2, "--delay", 75, 1, "keyup", "Control_L")
+        self.assert_selection("ctrl-double-click-diff", path)
+        assert box(card) != bounds, "Ctrl+double-click did not center the panned diff"
 
     def fit(self):
         click(*midpoint(find(self.window, "push button", "Fit all")))
@@ -220,8 +249,8 @@ def rapid_viewed_pan(m, current, next_file):
     # state. In the second there is no frame or key delay between V and pan.
     m.select_title(current)
     m.mark("rapid-setup-unmark", current, current, "key", False)
-    m.select_title(current, double=True)
-    until("double-click did not zoom into the pan case", lambda: m.zoom() == 100)
+    m.select_title(current, center=True)
+    until("Ctrl+double-click did not zoom into the pan case", lambda: m.zoom() == 100)
     m.load_cards()
     m.mark("settled-v", current, next_file, "key", True)
     centered = box(m.cards[next_file])
@@ -276,8 +305,13 @@ def navigate(_):
     m.select_title(row[0])
     m.assert_selection("fit-start", row[0], centered=False)
     traverse(m, "fit", row)
-    m.select_title(row[0], double=True)
-    until("double-click did not return to card zoom", lambda: m.zoom() == 100)
+    x, y = m.visible_point(m.titles[row[0]])
+    overview_zoom = m.zoom()
+    xdo("mousemove", x, y, "click", "--repeat", 2, "--delay", 75, 1)
+    time.sleep(.5)
+    assert m.zoom() == overview_zoom, "Plain title double-click changed the zoom"
+    m.select_title(row[0], center=True)
+    until("Ctrl+double-click did not return to card zoom", lambda: m.zoom() == 100)
     m.load_cards()
     m.assert_selection("zoom-start", row[0])
     traverse(m, "zoom", row)
@@ -286,6 +320,7 @@ def navigate(_):
     until("middle drag did not pan the map", lambda: box(m.cards[row[0]]) != before)
     xdo("mouseup", 2)
     m.assert_selection("panned-start", row[0], centered=False)
+    m.select_word(row[0])
     traverse(m, "panned", row)
 
     m.key("up-to-second", "Up", front[1])

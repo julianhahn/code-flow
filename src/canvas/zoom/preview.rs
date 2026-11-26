@@ -100,7 +100,7 @@ impl Picture {
 impl Canvas {
     // The preview may still be visible when the user starts their next action.
     // Hit-test the artwork they actually clicked, using the original GTK bounds.
-    fn preview_click(self: &Rc<Self>, point: Point, double: bool) {
+    fn preview_click(self: &Rc<Self>, point: Point, event: &gdk::EventButton) {
         let hit = if let Some(last) = self.zoom_animation.handoff.borrow().as_ref() {
             Self::hit_preview(&last.cards, last.view.board_point(point))
         } else {
@@ -117,7 +117,7 @@ impl Canvas {
         };
         let Some((file, control)) = hit else { return };
         if let Some(control) = control {
-            if !double {
+            if event.event_type() == gdk::EventType::ButtonPress {
                 if control.is::<gtk::CheckButton>() {
                     self.after_zoom(move |c| {
                         let mark = !c.viewed.borrow().contains(&file);
@@ -127,9 +127,9 @@ impl Canvas {
                     gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD).set_text(&self.files[file].path);
                 }
             }
-        } else if double {
-            self.after_zoom(move |c| c.center_on_file(&c.files[file].path, 1.0));
-        } else {
+        } else if !self.handle_center_press(file, event)
+            && event.event_type() == gdk::EventType::ButtonPress
+        {
             // A click can select against the current board as soon as it hits.
             // Preserve input order if a preceding key still needs the new layout.
             if !self.zoom_animation.settling.get()
@@ -227,10 +227,7 @@ impl Canvas {
                     return glib::Propagation::Proceed;
                 };
                 match event.button() {
-                    1 => c.preview_click(
-                        c.event_anchor(event.root()),
-                        event.event_type() == gdk::EventType::DoubleButtonPress,
-                    ),
+                    1 => c.preview_click(c.event_anchor(event.root()), event),
                     2 => {
                         c.zoom_animation.drag.set(Some(event.root()));
                         widget.grab_add();
