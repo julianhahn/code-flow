@@ -309,6 +309,29 @@ static gboolean advance(gpointer unused) {
     GtkAdjustment *h = gtk_scrolled_window_get_hadjustment(scroll),
                   *v = gtk_scrolled_window_get_vadjustment(scroll);
     if (stage == 4) {
+      if (g_getenv("NATIVE_APPEARANCE")) {
+        static guint toggle_step;
+        GtkWidget *toggle = button(window, "Light mode");
+        if (!toggle) fail("Missing Light mode control");
+        if (toggle_step == 0) {
+          gint x, y, scale = gtk_widget_get_scale_factor(window);
+          gtk_widget_translate_coordinates(toggle, window, 0, 0, &x, &y);
+          gchar *rect = g_strdup_printf("%d %d %d %d", x * scale, y * scale,
+              gtk_widget_get_allocated_width(toggle) * scale,
+              gtk_widget_get_allocated_height(toggle) * scale);
+          report("appearance-rect", rect);
+          g_free(rect);
+          gtk_button_clicked(GTK_BUTTON(toggle));
+          toggle_step++;
+          return G_SOURCE_CONTINUE;
+        }
+        if (toggle_step == 1) {
+          screenshot(window, "map-light");
+          gtk_button_clicked(GTK_BUTTON(toggle));
+          toggle_step++;
+          return G_SOURCE_CONTINUE;
+        }
+      }
       screenshot(window, "map");
       if (g_strcmp0(g_getenv("NATIVE_STRESS"), "1") == 0) {
         start_profile(window, layout);

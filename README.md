@@ -30,6 +30,8 @@ open "$HOME/Applications/Code Flow.app"
 
 On Linux, run `./install-linux.sh` and choose **Code Flow** in the application menu. The installer adds `code-flow` to `~/.local/bin` and installs a desktop entry and icon. Both installers copy a release binary and capture the installing shell’s command search path and Pi settings directory. Install Zed’s `zed` command for source links and sign in to `pi` to use Ask Pi.
 
+Use **Light mode** in the upper-right corner of either window to switch the appearance. Dark is the default. The review map and source-evidence viewer share the saved preference.
+
 ## Review map
 
 - Type part of a branch name, select a recent review, or enter a PR number. **↻** fetches branches. Branches without a PR have an editable comparison base.

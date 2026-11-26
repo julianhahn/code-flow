@@ -60,7 +60,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> Rc<Self> {
+    pub fn new(appearance: Rc<crate::theme::Appearance>) -> Rc<Self> {
         let root = backend::review_root();
         let state_dir = backend::state_dir();
         let window = gtk::Window::new(gtk::WindowType::Toplevel);
@@ -103,7 +103,11 @@ impl App {
         }
         let status = label("Loading branches…", &["muted"]);
         status.set_selectable(true);
-        outer.pack_start(&status, false, false, 0);
+        let status_row = hbox(8);
+        status_row.pack_start(&status, true, true, 0);
+        status_row.pack_end(&appearance.toggle(|| {}), false, false, 0);
+        status.set_ellipsize(pango::EllipsizeMode::End);
+        outer.pack_start(&status_row, false, false, 0);
         let actions = hbox(12);
         let diff = button("Open diff map");
         crate::theme::style(&diff, "primary");

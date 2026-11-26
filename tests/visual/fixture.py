@@ -84,10 +84,9 @@ def prepare(home):
     (home / "pr.json").write_text(json.dumps(metadata))
     return env
 
-def prepare_flow(env):
+def prepare_flow(env, root=Path("/tmp/code-flow-example")):
     # Absolute source paths appear on the flow cards. The private container makes
     # this fixture path stable without depending on the host checkout's location.
-    root = Path("/tmp/code-flow-example")
     source = Path(env["HOME"]) / "source"
     subprocess.run(["git", "clone", "-q", "-b", "feature/publishing", str(source), str(root)], check=True)
     meta = root / ".tokensave"

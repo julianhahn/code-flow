@@ -138,13 +138,12 @@ fn run() -> anyhow::Result<()> {
     }
     match mode {
         Mode::Review => {
-            theme::apply();
-            let review = app::App::new();
+            let review = app::App::new(theme::Appearance::new(true));
             review.start();
             gtk::main();
         }
         Mode::Flow(path) => {
-            let _view = flow_viewer::Viewer::new(root, path);
+            let _view = flow_viewer::Viewer::new(root, path, theme::Appearance::new(false));
             gtk::main();
         }
         _ => unreachable!(),

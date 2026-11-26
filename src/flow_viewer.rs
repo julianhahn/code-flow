@@ -114,7 +114,8 @@ impl Scene {
         scene
     }
 
-    fn draw(&self, cr: &cairo::Context, root: &Path) -> Result<()> {
+    fn draw(&self, cr: &cairo::Context, root: &Path, light: bool) -> Result<()> {
+        let palette = |dark, day| if light { day } else { dark };
         let color = |rgb: (f64, f64, f64)| cr.set_source_rgb(rgb.0, rgb.1, rgb.2);
         let text = |x: f64, y: f64, value: &str, size: f64, rgb| -> Result<()> {
             color(rgb);
@@ -123,14 +124,20 @@ impl Scene {
             cr.show_text(&display_text(value))?;
             Ok(())
         };
-        let ink = (0.82, 0.85, 0.91);
-        color((0.075, 0.09, 0.12));
+        let ink = palette((0.82, 0.85, 0.91), (0.12, 0.15, 0.19));
+        color(palette((0.075, 0.09, 0.12), (1., 1., 1.)));
         cr.paint()?;
         for (i, &(top, bottom, right)) in self.bands.iter().enumerate() {
-            color([(0.105, 0.14, 0.19), (0.13, 0.12, 0.18), (0.10, 0.16, 0.15)][i % 3]);
+            color(
+                [
+                    palette((0.105, 0.14, 0.19), (0.94, 0.96, 0.98)),
+                    palette((0.13, 0.12, 0.18), (0.96, 0.94, 0.98)),
+                    palette((0.10, 0.16, 0.15), (0.92, 0.97, 0.95)),
+                ][i % 3],
+            );
             cr.rectangle(8., top, right - 16., bottom - top);
             cr.fill()?;
-            color((0.32, 0.39, 0.47));
+            color(palette((0.32, 0.39, 0.47), (0.54, 0.60, 0.66)));
             cr.set_line_width(1.);
             cr.move_to(8., top);
             cr.line_to(right - 8., top);
@@ -155,9 +162,9 @@ impl Scene {
                 ],
             };
             color(if kind == "return" {
-                (0.66, 0.8, 0.56)
+                palette((0.66, 0.8, 0.56), (0.15, 0.42, 0.23))
             } else {
-                (0.58, 0.74, 0.98)
+                palette((0.58, 0.74, 0.98), (0.11, 0.34, 0.62))
             });
             cr.set_line_width(2.);
             if kind == "return" {
@@ -189,10 +196,26 @@ impl Scene {
                 continue;
             }
             let (bg, accent, name) = match n.kind.as_str() {
-                "condition" => ((0.25, 0.20, 0.10), (0.98, 0.73, 0.27), "IF · DECISION"),
-                "throw" => ((0.29, 0.12, 0.16), (1., 0.46, 0.5), "THROW · STOP"),
-                "return" => ((0.10, 0.23, 0.18), (0.39, 0.85, 0.62), "RETURN · DONE"),
-                _ => ((0.12, 0.18, 0.27), (0.42, 0.68, 1.), "CALL · FUNCTION"),
+                "condition" => (
+                    palette((0.25, 0.20, 0.10), (1., 0.95, 0.82)),
+                    palette((0.98, 0.73, 0.27), (0.44, 0.29, 0.04)),
+                    "IF · DECISION",
+                ),
+                "throw" => (
+                    palette((0.29, 0.12, 0.16), (1., 0.91, 0.91)),
+                    palette((1., 0.46, 0.5), (0.62, 0.12, 0.17)),
+                    "THROW · STOP",
+                ),
+                "return" => (
+                    palette((0.10, 0.23, 0.18), (0.88, 0.96, 0.91)),
+                    palette((0.39, 0.85, 0.62), (0.08, 0.38, 0.19)),
+                    "RETURN · DONE",
+                ),
+                _ => (
+                    palette((0.12, 0.18, 0.27), (0.89, 0.94, 1.)),
+                    palette((0.42, 0.68, 1.), (0.10, 0.32, 0.62)),
+                    "CALL · FUNCTION",
+                ),
             };
             color(bg);
             cr.rectangle(x, y, W, H);
@@ -229,20 +252,39 @@ impl Scene {
                 line.push(ch);
                 if old > 0 && cr.text_extents(&line)?.width() > W - 24. {
                     line.truncate(old);
-                    text(x + 12., ty, &line, 11., (0.48, 0.74, 1.))?;
+                    text(
+                        x + 12.,
+                        ty,
+                        &line,
+                        11.,
+                        palette((0.48, 0.74, 1.), (0.04, 0.31, 0.58)),
+                    )?;
                     ty += 15.;
                     line.clear();
                     line.push(ch);
                 }
             }
-            text(x + 12., ty, &line, 11., (0.48, 0.74, 1.))?;
-            text(x + 12., y + H - 15., &n.hint, 11., (0.64, 0.7, 0.78))?;
+            text(
+                x + 12.,
+                ty,
+                &line,
+                11.,
+                palette((0.48, 0.74, 1.), (0.04, 0.31, 0.58)),
+            )?;
+            text(
+                x + 12.,
+                y + H - 15.,
+                &n.hint,
+                11.,
+                palette((0.64, 0.7, 0.78), (0.28, 0.33, 0.39)),
+            )?;
         }
         Ok(())
     }
 }
 
 pub struct Viewer {
+    appearance: Rc<crate::theme::Appearance>,
     window: gtk::Window,
     root: PathBuf,
     path: RefCell<Option<PathBuf>>,
@@ -260,7 +302,11 @@ pub struct Viewer {
 }
 
 impl Viewer {
-    pub fn new(root: PathBuf, path: Option<PathBuf>) -> Rc<Self> {
+    pub fn new(
+        root: PathBuf,
+        path: Option<PathBuf>,
+        appearance: Rc<crate::theme::Appearance>,
+    ) -> Rc<Self> {
         let window = gtk::Window::new(gtk::WindowType::Toplevel);
         window.set_default_size(1320, 820);
         let body = vbox(10);
@@ -279,7 +325,9 @@ impl Viewer {
         for item in [&diff, &search, &example, &open, &collapse] {
             bar.pack_start(item, false, false, 0);
         }
-        body.pack_start(&label("→ Continue at the same depth     ↓ Drill into a function     ⇡ Dashed: return to its caller",&[]),false,false,0);
+        let legend = hbox(8);
+        body.pack_start(&legend, false, false, 0);
+        legend.pack_start(&label("→ Continue at the same depth     ↓ Drill into a function     ⇡ Dashed: return to its caller",&[]),false,false,0);
         let notice = label("", &[]);
         notice.set_line_wrap(true);
         body.pack_start(&notice, false, false, 0);
@@ -296,6 +344,7 @@ impl Viewer {
         body.pack_start(&scroll, true, true, 0);
         body.pack_start(&label("Click a card to expand/collapse. Click its blue filename to open Zed. Scroll horizontally for long paths. No files are changed.",&[]),false,false,0);
         let view = Rc::new(Self {
+            appearance: appearance.clone(),
             window,
             root,
             path: RefCell::new(path),
@@ -312,6 +361,14 @@ impl Viewer {
             diff_base: std::env::var("CODE_FLOW_DIFF_BASE")
                 .unwrap_or_else(|_| "origin/main".into()),
         });
+        legend.pack_end(
+            &appearance.toggle(
+                clone!(@weak view => move || { view.rasterize(); view.set_zoom(view.zoom.get()); }),
+            ),
+            false,
+            false,
+            0,
+        );
         view.area.connect_draw(clone!(@weak view => @default-return Propagation::Proceed, move |_,cr|{
             if let Some(image)=view.display.borrow().as_ref() {
                 use gdk::prelude::GdkContextExt;
@@ -319,7 +376,7 @@ impl Viewer {
                 let _=cr.paint();
             } else {
                 cr.scale(view.zoom.get(),view.zoom.get());
-                if let Err(e)=view.scene.borrow().draw(cr,&view.root) {eprintln!("Drawing flow: {e}");}
+                if let Err(e)=view.scene.borrow().draw(cr,&view.root,view.appearance.light()) {eprintln!("Drawing flow: {e}");}
             }
             Propagation::Stop
         }));
@@ -432,7 +489,7 @@ impl Viewer {
         self.window
             .set_title(&format!("Code Flow — Prototype · {:.0}%", z * 100.));
     }
-    fn reset_view(&self) {
+    fn rasterize(&self) {
         // The original flow renderer rasterized at 100% and scaled that image
         // bilinearly. Cache it for pans; large diagrams use clipped vector drawing.
         let raster = (|| -> Result<Option<gdk_pixbuf::Pixbuf>> {
@@ -447,13 +504,20 @@ impl Viewer {
                 return Ok(None);
             }
             let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h)?;
-            scene.draw(&cairo::Context::new(&surface)?, &self.root)?;
+            scene.draw(
+                &cairo::Context::new(&surface)?,
+                &self.root,
+                self.appearance.light(),
+            )?;
             Ok(gdk::pixbuf_get_from_surface(&surface, 0, 0, w, h))
         })();
         self.original.replace(raster.unwrap_or_else(|e| {
             eprintln!("Rasterizing flow: {e}");
             None
         }));
+    }
+    fn reset_view(&self) {
+        self.rasterize();
         self.set_zoom(1.);
         let first = self
             .scene

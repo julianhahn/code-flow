@@ -479,6 +479,39 @@ impl Canvas {
         Some((natural.width as f64, natural.height as f64))
     }
 
+    fn style_patch_tags(text: &gtk::TextView) {
+        let table = text.buffer().unwrap().tag_table().unwrap();
+        // GTK text tags store concrete RGBA values rather than symbolic CSS colors.
+        if table
+            .lookup("context")
+            .and_then(|tag| tag.foreground_rgba())
+            == Some(theme::color(text, "text_dim"))
+        {
+            return;
+        }
+        for (tag, bg, fg) in [
+            ("add", "add_bg", "add_fg"),
+            ("del", "del_bg", "del_fg"),
+            ("context", "bg", "text_dim"),
+            ("search-hit", "hit_bg", "hit_fg"),
+            ("search-current", "current_bg", "current_fg"),
+        ] {
+            let style = table.lookup(tag).unwrap_or_else(|| {
+                let style = gtk::TextTag::new(Some(tag));
+                table.add(&style);
+                style
+            });
+            let background = theme::color(text, bg);
+            let foreground = theme::color(text, fg);
+            if tag.starts_with("search") {
+                style.set_background_rgba(Some(&background));
+            } else {
+                style.set_paragraph_background_rgba(Some(&background));
+            }
+            style.set_foreground_rgba(Some(&foreground));
+        }
+    }
+
     fn make_card(
         self: &Rc<Self>,
         i: usize,
@@ -529,24 +562,8 @@ impl Canvas {
         font_tag.set_font_desc(Some(&styles.font));
         table.add(&font_tag);
         buffer.apply_tag(&font_tag, &buffer.start_iter(), &buffer.end_iter());
-        for (tag, bg, fg) in [
-            ("add", "add_bg", "add_fg"),
-            ("del", "del_bg", "del_fg"),
-            ("context", "bg", "text_dim"),
-            ("search-hit", "hit_bg", "hit_fg"),
-            ("search-current", "current_bg", "current_fg"),
-        ] {
-            let style = gtk::TextTag::new(Some(tag));
-            let background = theme::color(&text, bg);
-            let foreground = theme::color(&text, fg);
-            if tag.starts_with("search") {
-                style.set_background_rgba(Some(&background));
-            } else {
-                style.set_paragraph_background_rgba(Some(&background));
-            }
-            style.set_foreground_rgba(Some(&foreground));
-            table.add(&style);
-        }
+        Self::style_patch_tags(&text);
+        text.connect_style_updated(Self::style_patch_tags);
         for &(kind, start, end) in &patch.ranges {
             buffer.apply_tag_by_name(
                 kind,

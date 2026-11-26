@@ -20,6 +20,8 @@ The runner builds the shipping Rust binary and extracts the Python reference app
 
 The comparison covers the dashboard, PR overview, diff map, two-axis pan, Fit all, Hide specs, and Viewed. Each screenshot can differ by at most 40 pixels with any RGB channel changing by more than three levels. The runner saves both sets of PNGs and any difference masks under `target/visual/native/<platform>/`.
 
+The appearance check switches the live map to light and back and checks the painted diff colors. For legacy parity it uses the dashboard’s rendering of the new toggle at its measured position in all seven windows.
+
 The native suite also opens an offline replica of the four-column layout from PR #28118. It sends Left and Right through all four columns at Fit all and 100%, checks the selected file after each key, and presses again at both outside edges. It unmarks the first Frontend file, then marks it again using the Viewed control and checks that selection skips the already-viewed second file. The suite saves a screenshot at each zoom and captures the window if an unexpected file is selected.
 
 `--stress` also opens a 160-file review in the Rust app, sends middle-drag motion events for two seconds and samples real canvas pixels during the gesture. Its report includes distinct painted updates, median and 95th-percentile intervals and the longest gap. The test fails if it observes fewer than 30 painted updates or the selected card changes or is rebuilt. These timings describe the local display and capture load. The input events are synthetic.

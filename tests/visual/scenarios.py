@@ -113,6 +113,13 @@ class Screenshots:
             return
         with Image.open(path) as original:
             expected = original.convert("RGB")
+        # The shipping window has one extra control in a previously empty row.
+        # Keep checking every pixel, including the control, against a reference.
+        if MODE == "compare" and (title == MAIN or title.startswith("Code Flow — Prototype")):
+            review = title == MAIN
+            patch = "review.png" if review else "flow.png"
+            with Image.open(Path(__file__).with_name("appearance") / patch) as control:
+                expected.paste(control, (1304, 57) if review else (1219, 62))
         if expected.size != actual.size:
             self.failures.append(f"{name}: size {actual.size}, expected {expected.size}")
             return
@@ -309,6 +316,41 @@ def exercise(cmd, env, run, screenshots, failure_directory=None):
                 app.kill()
 
 
+def appearance_scenario(review, flow):
+    def contains(title, colors):
+        counts = {rgb: n for n, rgb in pixels(title).getcolors(2_000_000)}
+        return all(counts.get(color, 0) > 1000 for color in colors)
+
+    def switch_review(_):
+        window_id()
+        click(478, 148)
+        wait("review overview", lambda: pixels(MAIN).getpixel((20, 90)) == (31, 111, 235))
+        open_map()
+        wait("dark diff", lambda: contains(MAIN, [(18, 38, 30)]))
+        click(1348, 64)
+        wait("existing added and deleted rows to repaint", lambda: contains(MAIN, [(224, 245, 229), (255, 230, 230)]))
+        pixels(MAIN).save(RESULTS / MODE / "light-review.png")
+
+    def switch_flow(_):
+        title = "Code Flow — Prototype · 100%"
+        wait("saved light flow cards", lambda: contains(title, [(255, 243, 209), (227, 240, 255)]))
+        xdo("mousemove", 650, 440, "keydown", "Control_L", "click", 4, "keyup", "Control_L")
+        title = "Code Flow — Prototype · 115%"
+        wait("zoomed light flow", lambda: contains(title, [(255, 243, 209)]))
+        pixels(title).save(RESULTS / MODE / "light-flow.png")
+        click(1260, 68)
+        wait("dark cards at the same zoom", lambda: contains(title, [(64, 51, 25), (30, 46, 69)]))
+
+    with tempfile.TemporaryDirectory() as directory:
+        home = Path(directory)
+        env = prepare(home)
+        (home / "state/code-flow/help-seen").touch()
+        exercise(review, env, switch_review, None)
+        exercise(flow, prepare_flow(env, home / "flow"), switch_flow, None)
+        exercise(review, env, lambda _: wait("dark appearance after restart",
+                 lambda: pixels(MAIN).getpixel((0, 0)) == (13, 17, 23)), None)
+
+
 def main():
     (RESULTS / MODE / "failure.png").unlink(missing_ok=True)
     with tempfile.TemporaryDirectory() as directory:
@@ -324,6 +366,7 @@ def main():
                  lambda s: reopened_review(s, home / "plancraft-review"), screenshots)
         screenshots.finish()
     if MODE == "compare":
+        appearance_scenario(review, flow)
         from navigation import run_navigation
         from motion import run_motion
         run_navigation(review)

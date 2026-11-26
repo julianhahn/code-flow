@@ -79,6 +79,8 @@ def run(binary, home, module, output, stress=False, navigation=False, motion=Fal
     env.update(GTK_MODULES=str(module), NATIVE_CAPTURES=str(output),
                NATIVE_STRESS="1" if stress else "", GTK_OVERLAY_SCROLLING="0",
                CODE_FLOW_REVIEW_ROOT=str(home / "plancraft-review"), CODE_FLOW_REPO="plancraft/plancraft")
+    if output.name == "rust":
+        env["NATIVE_APPEARANCE"] = "1"
     if motion:
         for stale_frame in output.glob("*.missing.png"):
             stale_frame.unlink()
@@ -98,11 +100,14 @@ def run(binary, home, module, output, stress=False, navigation=False, motion=Fal
         raise RuntimeError(f"{output.name} failed ({process.returncode}): {detail}")
 
 
-def compare(old_file, new_file, difference):
+def compare(old_file, new_file, difference, control, rect):
     a, b = (GdkPixbuf.Pixbuf.new_from_file(str(path)) for path in (old_file, new_file))
     size = (a.get_width(), a.get_height())
     if size != (b.get_width(), b.get_height()) or a.get_n_channels() != b.get_n_channels():
         raise ValueError(f"Inconsistent window format in {new_file.name}")
+    # The new control occupies the same formerly empty spot in each review state.
+    x, y, w, h = rect
+    control.copy_area(x, y, w, h, a, x, y)
     old, new = a.get_pixels(), b.get_pixels()
     if old == new:
         difference.unlink(missing_ok=True)
@@ -154,11 +159,19 @@ def main():
         for name, binary in [("legacy", [sys.executable, str(work / "legacy/review_app.py")]),
                              ("rust", candidate)]:
             run(binary, work / ("home-" + name), module, output / name)
+        load = lambda name: GdkPixbuf.Pixbuf.new_from_file(str(output / "rust" / name))
+        control = load("dashboard.png")
+        rect = tuple(map(int, (output / "rust/appearance-rect").read_text().split()))
+        for filename, colors in [("map-light.png", ["ffffff", "e0f5e5", "ffe6e6"]),
+                                 ("map.png", ["0d1117", "12261e", "2d1519"])]:
+            data = load(filename).get_pixels()
+            for rgb in colors:
+                assert data.count(bytes.fromhex(rgb)) > 100, f"{filename} missing {rgb}"
         failures = []
         for state in STATES:
             ref = output / "legacy" / (state + ".png")
             actual = output / "rust" / (state + ".png")
-            size, count = compare(ref, actual, output / (state + ".diff.png"))
+            size, count = compare(ref, actual, output / (state + ".diff.png"), control, rect)
             print(f"{state}: {size[0]}×{size[1]}, {count} changed pixels")
             if count > 40:
                 failures.append(state)
